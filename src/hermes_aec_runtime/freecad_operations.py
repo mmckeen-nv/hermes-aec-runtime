@@ -26,6 +26,7 @@ _FIELDS = {
     "set_attributes": {"op", "target", "label", "group", "color", "visible"},
     "delete": {"op", "target"},
 }
+_MAX_OPERATIONS = 256
 
 
 def _number(value: Any, field: str, *, positive: bool = False) -> float:
@@ -45,7 +46,7 @@ def _vector(value: Any, field: str, default: tuple[float, float, float] | None =
 
 
 def normalize_freecad_operations(operations: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
-    if not operations:
+    if not isinstance(operations, list) or not operations or len(operations) > _MAX_OPERATIONS:
         raise FreeCADOperationError("at least one operation is required")
     aliases: set[str] = set()
     normalized: list[dict[str, Any]] = []
@@ -59,7 +60,7 @@ def normalize_freecad_operations(operations: list[dict[str, Any]]) -> tuple[dict
         item: dict[str, Any] = {"op": op}
         if op.startswith("create_"):
             alias = raw.get("id")
-            if not isinstance(alias, str) or not alias or alias in aliases:
+            if not isinstance(alias, str) or not alias or len(alias) > 128 or alias in aliases:
                 raise FreeCADOperationError(f"operations[{index}].id must be a unique alias")
             aliases.add(alias); item.update(id=alias, name=str(raw.get("name") or alias))
             item["position"] = _vector(raw.get("position"), "position", (0, 0, 0))
@@ -75,8 +76,12 @@ def normalize_freecad_operations(operations: list[dict[str, Any]]) -> tuple[dict
             if op == "transform":
                 item["translation"] = _vector(raw.get("translation"), "translation", (0, 0, 0))
                 item["rotation_axis"] = _vector(raw.get("rotation_axis"), "rotation_axis", (0, 0, 1))
+                if item["rotation_axis"] == [0.0, 0.0, 0.0]:
+                    raise FreeCADOperationError("rotation_axis must be non-zero")
                 item["rotation_degrees"] = _number(raw.get("rotation_degrees", 0), "rotation_degrees")
             elif op == "set_attributes":
+                if "visible" in raw and not isinstance(raw["visible"], bool):
+                    raise FreeCADOperationError("visible must be a boolean")
                 for field in ("label", "group", "visible"):
                     if field in raw: item[field] = raw[field]
                 if "color" in raw:

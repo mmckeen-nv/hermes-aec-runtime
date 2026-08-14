@@ -57,6 +57,12 @@ _STOP = {
 
 
 def route_request(request: str, *, active_host: str = "rhino") -> RequestRoute:
+    if not isinstance(request, str):
+        raise ValueError("request must be a string")
+    if not isinstance(active_host, str) or active_host.casefold() not in {"rhino", "blender", "freecad"}:
+        raise ValueError("active_host must be rhino, blender, or freecad")
+    if len(request) > 64_000:
+        raise ValueError("request exceeds 64000 characters")
     words = tuple(word.strip(".,:;!?()[]{}").casefold() for word in request.split())
     word_set = set(words)
     host = "blender" if "blender" in word_set or word_set & _VERBS[Intent.VISUALIZE] else active_host.casefold()

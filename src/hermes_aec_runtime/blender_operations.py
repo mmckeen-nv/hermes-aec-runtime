@@ -25,6 +25,18 @@ _KINDS = {
     "import_scene", "ensure_collection", "transform", "assign_material",
     "create_camera", "create_light", "render_settings", "save_blend", "render",
 }
+_MAX_OPERATIONS = 256
+_MAX_TEXT = 4_096
+
+_FIELDS = {
+    "import_scene": {"op", "id", "path", "collection"}, "ensure_collection": {"op", "id", "name"},
+    "transform": {"op", "id", "objects", "location", "rotation_degrees", "scale"},
+    "assign_material": {"op", "id", "objects", "material", "base_color", "metallic", "roughness"},
+    "create_camera": {"op", "id", "name", "location", "rotation_degrees", "lens_mm"},
+    "create_light": {"op", "id", "name", "type", "location", "rotation_degrees", "energy"},
+    "render_settings": {"op", "id", "engine", "resolution", "samples"},
+    "save_blend": {"op", "id", "path"}, "render": {"op", "id", "path"},
+}
 
 
 def _number(value: Any, path: str, *, positive: bool = False) -> float:
@@ -43,13 +55,13 @@ def _vec(value: Any, path: str, size: int = 3) -> list[float]:
 
 
 def _text(value: Any, path: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value.strip() or len(value) > _MAX_TEXT:
         raise BlenderOperationError(f"{path}: must be a non-empty string")
     return value
 
 
 def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    if isinstance(operations, (str, bytes)) or not isinstance(operations, Sequence) or not operations:
+    if isinstance(operations, (str, bytes)) or not isinstance(operations, Sequence) or not operations or len(operations) > _MAX_OPERATIONS:
         raise BlenderOperationError("operations: must be a non-empty array")
     result: list[dict[str, Any]] = []
     aliases: set[str] = set()
@@ -58,6 +70,9 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
         if not isinstance(raw, Mapping) or raw.get("op") not in _KINDS:
             raise BlenderOperationError(f"{path}.op: unsupported operation")
         kind = str(raw["op"])
+        unknown = set(raw) - _FIELDS[kind]
+        if unknown:
+            raise BlenderOperationError(f"{path}: unknown fields: {', '.join(sorted(unknown))}")
         alias = _text(raw.get("id", f"op_{i + 1}"), f"{path}.id")
         if alias in aliases:
             raise BlenderOperationError(f"{path}.id: must be unique")
@@ -71,20 +86,26 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
         elif kind == "ensure_collection":
             op["name"] = _text(raw.get("name"), f"{path}.name")
         elif kind == "transform":
-            op["objects"] = [_text(x, f"{path}.objects") for x in raw.get("objects", [])]
+            objects = raw.get("objects", [])
+            if not isinstance(objects, list): raise BlenderOperationError(f"{path}.objects: must be an array")
+            op["objects"] = [_text(x, f"{path}.objects") for x in objects]
             if not op["objects"]: raise BlenderOperationError(f"{path}.objects: required")
             changed = False
             for key in ("location", "rotation_degrees", "scale"):
                 if key in raw: op[key] = _vec(raw[key], f"{path}.{key}"); changed = True
             if not changed: raise BlenderOperationError(f"{path}: requires a transform")
         elif kind == "assign_material":
-            op["objects"] = [_text(x, f"{path}.objects") for x in raw.get("objects", [])]
+            objects = raw.get("objects", [])
+            if not isinstance(objects, list): raise BlenderOperationError(f"{path}.objects: must be an array")
+            op["objects"] = [_text(x, f"{path}.objects") for x in objects]
             if not op["objects"]: raise BlenderOperationError(f"{path}.objects: required")
             op["material"] = _text(raw.get("material"), f"{path}.material")
             op["base_color"] = _vec(raw.get("base_color", [0.8, .8, .8, 1]), f"{path}.base_color", 4)
             if any(not 0 <= x <= 1 for x in op["base_color"]): raise BlenderOperationError(f"{path}.base_color: values must be 0..1")
             op["metallic"] = _number(raw.get("metallic", 0), f"{path}.metallic")
             op["roughness"] = _number(raw.get("roughness", .5), f"{path}.roughness")
+            if not 0 <= op["metallic"] <= 1 or not 0 <= op["roughness"] <= 1:
+                raise BlenderOperationError(f"{path}: metallic and roughness must be 0..1")
         elif kind == "create_camera":
             op["name"] = _text(raw.get("name"), f"{path}.name"); op["location"] = _vec(raw.get("location"), f"{path}.location")
             op["rotation_degrees"] = _vec(raw.get("rotation_degrees", [0, 0, 0]), f"{path}.rotation_degrees")
@@ -98,8 +119,9 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
         elif kind == "render_settings":
             op["engine"] = str(raw.get("engine", "BLENDER_EEVEE_NEXT"))
             if op["engine"] not in {"BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH", "CYCLES"}: raise BlenderOperationError(f"{path}.engine: unsupported")
-            op["resolution"] = [int(_number(x, f"{path}.resolution", positive=True)) for x in raw.get("resolution", [1920, 1080])]
-            if len(op["resolution"]) != 2: raise BlenderOperationError(f"{path}.resolution: requires width and height")
+            resolution = raw.get("resolution", [1920, 1080])
+            if not isinstance(resolution, (list, tuple)) or len(resolution) != 2: raise BlenderOperationError(f"{path}.resolution: requires width and height")
+            op["resolution"] = [int(_number(x, f"{path}.resolution", positive=True)) for x in resolution]
             op["samples"] = int(_number(raw.get("samples", 64), f"{path}.samples", positive=True))
         elif kind in {"save_blend", "render"}:
             op["path"] = _text(raw.get("path"), f"{path}.path")

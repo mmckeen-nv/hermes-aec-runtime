@@ -103,7 +103,10 @@ def transition(current: str | TransactionState, target: str | TransactionState) 
 
 
 def canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ContractError(f"value is not canonical JSON: {exc}") from exc
 
 
 def content_hash(value: Any) -> str:
@@ -111,13 +114,15 @@ def content_hash(value: Any) -> str:
 
 
 def validate_envelope(document: Mapping[str, Any], kind: str) -> None:
+    if not isinstance(document, Mapping):
+        raise ContractError("envelope must be an object")
     required = ("schema_version", "kind", "id", "created_at")
     missing = [name for name in required if name not in document]
     if missing:
         raise ContractError(f"missing envelope fields: {', '.join(missing)}")
-    if not document["id"] or not document["kind"]:
-        raise ContractError("envelope id and kind must be non-empty")
-    if not isinstance(document["created_at"], int) or document["created_at"] < 0:
+    if not isinstance(document["id"], str) or not document["id"].strip() or not isinstance(document["kind"], str) or not document["kind"].strip():
+        raise ContractError("envelope id and kind must be non-empty strings")
+    if isinstance(document["created_at"], bool) or not isinstance(document["created_at"], int) or document["created_at"] < 0:
         raise ContractError("created_at must be a non-negative integer")
     if document["schema_version"] != CONTRACT_VERSION:
         raise ContractError(f"unsupported schema_version {document['schema_version']!r}; expected {CONTRACT_VERSION}")
@@ -130,7 +135,7 @@ def validate_transaction(document: Mapping[str, Any], policy: SafetyPolicy = Saf
     operations = document.get("operations")
     if not isinstance(operations, list) or not operations:
         raise ContractError("operations must be a non-empty list")
-    if policy.mutation_requires_revision and not isinstance(document.get("document_revision"), int):
+    if policy.mutation_requires_revision and (isinstance(document.get("document_revision"), bool) or not isinstance(document.get("document_revision"), int) or document["document_revision"] < 0):
         raise ContractError("document_revision is required for mutation")
     if policy.mutation_requires_idempotency_key and not document.get("idempotency_key"):
         raise ContractError("idempotency_key is required for mutation")

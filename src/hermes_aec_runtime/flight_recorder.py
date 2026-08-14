@@ -25,19 +25,41 @@ def _digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
-def _safe(value: Any) -> Any:
+def _safe(value: Any, _seen: set[int] | None = None) -> Any:
     """Redact secrets and paths, and reject transcript-shaped fields recursively."""
+    _seen = set() if _seen is None else _seen
+    if isinstance(value, (Mapping, list, tuple)):
+        marker = id(value)
+        if marker in _seen:
+            return "[CYCLE]"
+        _seen.add(marker)
     if isinstance(value, Mapping):
-        return redact({str(k): _safe(v) for k, v in value.items() if not _DENIED_KEYS.match(str(k))})
+        result = redact({str(k): _safe(v, _seen) for k, v in value.items() if not _DENIED_KEYS.match(str(k))})
+        _seen.remove(id(value))
+        return result
     if isinstance(value, (list, tuple)):
-        return [_safe(v) for v in value]
+        result = [_safe(v, _seen) for v in value[:1000]]
+        _seen.remove(id(value))
+        return result
     return redact(value)
 
 
-def _contains_transcript(value: Any) -> bool:
+def _contains_transcript(value: Any, _seen: set[int] | None = None) -> bool:
+    _seen = set() if _seen is None else _seen
+    if isinstance(value, (Mapping, list, tuple)):
+        marker = id(value)
+        if marker in _seen:
+            return False
+        _seen.add(marker)
     if isinstance(value, Mapping):
-        return any(_TRANSCRIPT_KEYS.match(str(k)) or _contains_transcript(v) for k, v in value.items())
-    return isinstance(value, (list, tuple)) and any(_contains_transcript(v) for v in value)
+        result = any(_TRANSCRIPT_KEYS.match(str(k)) or _contains_transcript(v, _seen) for k, v in value.items())
+        _seen.remove(id(value))
+        return result
+    if isinstance(value, (list, tuple)):
+        result = any(_contains_transcript(v, _seen) for v in value)
+        _seen.remove(id(value))
+        return result
+    return False
 
 
 def scene_subset_digest(scene_subset: Mapping[str, Any] | Iterable[Mapping[str, Any]]) -> dict[str, Any]:

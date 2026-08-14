@@ -31,6 +31,9 @@ _KINDS = {
     "transform_in_place", "duplicate", "delete", "set_attributes", "extrude_curve",
     "offset_curve", "boolean_union", "boolean_difference", "boolean_intersection",
 }
+_MAX_OPERATIONS = 256
+_MAX_POINTS = 10_000
+_MAX_TEXT = 4_096
 
 
 def _fail(path: str, message: str) -> None:
@@ -53,11 +56,11 @@ def _vector(value: Any, path: str) -> list[float]:
 
 
 def _targets(value: Any, path: str, known_aliases: set[str]) -> list[str]:
-    if not isinstance(value, list) or not value:
+    if not isinstance(value, list) or not value or len(value) > _MAX_OPERATIONS:
         _fail(path, "must be a non-empty array")
     result: list[str] = []
     for index, target in enumerate(value):
-        if not isinstance(target, str) or not target.strip():
+        if not isinstance(target, str) or not target.strip() or len(target) > _MAX_TEXT:
             _fail(f"{path}[{index}]", "must be a GUID or $operation_id reference")
         if target.startswith("$") and target[1:] not in known_aliases:
             _fail(f"{path}[{index}]", f"references unknown or future operation {target!r}")
@@ -78,7 +81,7 @@ def _keys(op: Mapping[str, Any], allowed: set[str], path: str) -> None:
 
 def normalize_operations(operations: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Validate operations and return a canonical JSON-compatible representation."""
-    if isinstance(operations, (str, bytes)) or not isinstance(operations, Sequence) or not operations:
+    if isinstance(operations, (str, bytes)) or not isinstance(operations, Sequence) or not operations or len(operations) > _MAX_OPERATIONS:
         _fail("operations", "must be a non-empty array")
     normalized: list[dict[str, Any]] = []
     aliases: set[str] = set()
@@ -90,7 +93,7 @@ def normalize_operations(operations: Sequence[Mapping[str, Any]]) -> list[dict[s
         if kind not in _KINDS:
             _fail(f"{path}.op", f"must be one of {', '.join(sorted(_KINDS))}")
         alias = raw.get("id", f"op_{index + 1}")
-        if not isinstance(alias, str) or not alias or not alias.replace("_", "a").replace("-", "a").isalnum():
+        if not isinstance(alias, str) or not alias or len(alias) > 128 or not alias.replace("_", "a").replace("-", "a").isalnum():
             _fail(f"{path}.id", "must contain only letters, numbers, underscores, or hyphens")
         if alias in aliases:
             _fail(f"{path}.id", "must be unique")
@@ -104,9 +107,10 @@ def normalize_operations(operations: Sequence[Mapping[str, Any]]) -> list[dict[s
         elif kind == "create_polyline":
             _keys(raw, {"points", "closed"}, path)
             points = raw.get("points")
-            if not isinstance(points, list) or len(points) < 2: _fail(f"{path}.points", "must contain at least two points")
+            if not isinstance(points, list) or len(points) < 2 or len(points) > _MAX_POINTS: _fail(f"{path}.points", "must contain between two and 10000 points")
             out["points"] = [_vector(p, f"{path}.points[{i}]") for i, p in enumerate(points)]
-            out["closed"] = bool(raw.get("closed", False))
+            if not isinstance(raw.get("closed", False), bool): _fail(f"{path}.closed", "must be a boolean")
+            out["closed"] = raw.get("closed", False)
             if out["closed"] and len(points) < 3: _fail(f"{path}.points", "closed polyline requires at least three points")
         elif kind == "create_box":
             _keys(raw, {"min", "max"}, path)
@@ -140,7 +144,7 @@ def normalize_operations(operations: Sequence[Mapping[str, Any]]) -> list[dict[s
             out["targets"] = _targets(raw.get("targets"), f"{path}.targets", aliases)
             for field in ("name", "layer"):
                 if field in raw:
-                    if not isinstance(raw[field], str) or not raw[field].strip(): _fail(f"{path}.{field}", "must be a non-empty string")
+                    if not isinstance(raw[field], str) or not raw[field].strip() or len(raw[field]) > _MAX_TEXT: _fail(f"{path}.{field}", "must be a non-empty bounded string")
                     out[field] = raw[field]
             if "color" in raw:
                 color = raw["color"]
@@ -155,7 +159,8 @@ def normalize_operations(operations: Sequence[Mapping[str, Any]]) -> list[dict[s
             allowed = {"targets", "vector", "cap"} if kind == "extrude_curve" else {"targets", "distance", "normal"}
             _keys(raw, allowed, path); out["targets"] = _targets(raw.get("targets"), f"{path}.targets", aliases)
             if kind == "extrude_curve":
-                out["vector"] = _vector(raw.get("vector"), f"{path}.vector"); out["cap"] = bool(raw.get("cap", True))
+                if not isinstance(raw.get("cap", True), bool): _fail(f"{path}.cap", "must be a boolean")
+                out["vector"] = _vector(raw.get("vector"), f"{path}.vector"); out["cap"] = raw.get("cap", True)
                 if out["vector"] == [0.0, 0.0, 0.0]: _fail(f"{path}.vector", "must be non-zero")
             else:
                 out["distance"] = _number(raw.get("distance"), f"{path}.distance")
@@ -166,7 +171,8 @@ def normalize_operations(operations: Sequence[Mapping[str, Any]]) -> list[dict[s
             out["targets"] = _targets(raw.get("targets"), f"{path}.targets", aliases)
             if kind == "boolean_difference": out["cutters"] = _targets(raw.get("cutters"), f"{path}.cutters", aliases)
             elif "cutters" in raw: _fail(path, f"{kind} does not accept cutters")
-            out["delete_input"] = bool(raw.get("delete_input", True))
+            if not isinstance(raw.get("delete_input", True), bool): _fail(f"{path}.delete_input", "must be a boolean")
+            out["delete_input"] = raw.get("delete_input", True)
         normalized.append(out); aliases.add(alias)
     return normalized
 

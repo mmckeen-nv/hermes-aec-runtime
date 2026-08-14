@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -24,20 +25,31 @@ def _clean_text(value: str, limit: int = 512) -> str:
     return value[:limit]
 
 
-def redact(value: Any) -> Any:
+def redact(value: Any, _seen: set[int] | None = None) -> Any:
     """Deterministically sanitize structured data; raw conversations are never accepted."""
+    _seen = set() if _seen is None else _seen
+    if isinstance(value, (dict, list, tuple)):
+        marker = id(value)
+        if marker in _seen:
+            return "[CYCLE]"
+        _seen.add(marker)
     if isinstance(value, dict):
         clean: dict[str, Any] = {}
         for key in sorted(value):
             if _SECRET_KEY.search(str(key)):
                 clean[str(key)] = "[REDACTED]"
             elif str(key).lower() not in {"transcript", "messages", "prompt", "raw_request", "stdout", "stderr"}:
-                clean[str(key)] = redact(value[key])
+                clean[str(key)] = redact(value[key], _seen)
+        _seen.remove(id(value))
         return clean
     if isinstance(value, (list, tuple)):
-        return [redact(item) for item in value[:100]]
+        clean_list = [redact(item, _seen) for item in value[:100]]
+        _seen.remove(id(value))
+        return clean_list
     if isinstance(value, str):
         return _clean_text(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        return "[NON_FINITE]"
     return value if value is None or isinstance(value, (bool, int, float)) else _clean_text(str(value))
 
 
@@ -78,10 +90,17 @@ def _quality(receipt: dict[str, Any], verification: dict[str, Any], trace: tuple
     score = 0.0
     score += 0.35 if receipt.get("status") == "completed" else 0.0
     score += 0.40 if verification.get("status") == "verified" and not verification.get("failed") else 0.0
-    attempted = int(receipt.get("actions_attempted", 0))
-    completed = int(receipt.get("actions_completed", 0))
+    try:
+        attempted = int(receipt.get("actions_attempted", 0))
+        completed = int(receipt.get("actions_completed", 0))
+    except (TypeError, ValueError, OverflowError):
+        attempted = completed = 0
     score += 0.15 if attempted > 0 and attempted == completed else 0.0
-    total_ms = sum(float(event.get("duration_ms", 0) or 0) for event in trace)
+    try:
+        durations = [float(event.get("duration_ms", 0) or 0) for event in trace]
+        total_ms = sum(durations) if all(math.isfinite(value) and value >= 0 for value in durations) else math.inf
+    except (TypeError, ValueError, OverflowError):
+        total_ms = math.inf
     score += 0.10 if total_ms <= policy.maximum_duration_ms else 0.0
     return round(score, 4)
 
