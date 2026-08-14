@@ -69,11 +69,16 @@ class FakeTransport:
         self.objects = []
         self.calls = []
         self.ambiguous_create = False
+        self.compatible = True
 
     async def call(self, command, params=None, **_):
         params = params or {}; self.calls.append((command, params))
         if command == "describe_capabilities":
-            return {"version": "0.3.2", "command_count": 4}
+            return {
+                "version": "0.4.0-aec.1",
+                "protocol_version": "aec-rhinomcp/1" if self.compatible else None,
+                "commands": ["create_object", "delete_object", "transform_object_in_place", "duplicate_object"],
+            }
         if command == "get_document_summary":
             return {"meta_data": {"name": "Test", "units": "Millimeters"}, "object_count": len(self.objects)}
         if command == "get_objects":
@@ -88,7 +93,31 @@ class FakeTransport:
         if command == "delete_object":
             self.objects = [x for x in self.objects if x["id"] != params["id"]]
             return {"deleted": True}
+        if command == "transform_object_in_place":
+            for item in self.objects:
+                if item["id"] == params["id"]:
+                    item["geometry"] = {"translated": params.get("translation")}
+                    return dict(item)
+        if command == "duplicate_object":
+            source = next(item for item in self.objects if item["id"] == params["id"])
+            copy = {**source, "id": "22222222-2222-2222-2222-222222222222"}
+            self.objects.append(copy)
+            return dict(copy)
         raise AssertionError(command)
+
+
+def test_stable_transform_reports_content_proven_modified_id():
+    fake = FakeTransport()
+    object_id = "11111111-1111-1111-1111-111111111111"
+    fake.objects = [{"id": object_id, "name": "Mass", "type": "BOX", "layer": "Default", "geometry": {"x": 0}}]
+    gateway = RhinoMCPGateway(fake)
+    before = asyncio.run(gateway.scene_index())
+    receipt = asyncio.run(gateway.execute_operations(
+        intent="move", operations=[{"op": "transform_in_place", "targets": [object_id], "translation": [1, 0, 0]}],
+        dry_run=False, idempotency_key="move-1", document_revision=before["document_revision"],
+    ))
+    assert receipt["status"] == "completed"
+    assert receipt["modified_ids"] == [object_id]
 
 
 def test_scene_index_paginates_and_has_content_revision():
@@ -111,6 +140,20 @@ def test_execute_resolves_aliases_verifies_and_replays():
     assert len([x for x in fake.calls if x[0] == "create_object"]) == 1
 
 
+def test_stale_revision_is_blocked_inside_serialized_gateway_before_mutation():
+    fake = FakeTransport(); gateway = RhinoMCPGateway(fake)
+    receipt = asyncio.run(gateway.execute_operations(
+        intent="post",
+        operations=[{"op": "create_point", "id": "post", "point": [1, 2, 3]}],
+        dry_run=False,
+        idempotency_key="stale",
+        document_revision="stale-revision",
+    ))
+    assert receipt["status"] == "blocked"
+    assert receipt["current_document_revision"]
+    assert not [call for call in fake.calls if call[0] == "create_object"]
+
+
 def test_ambiguous_create_is_reconciled_without_replay():
     fake = FakeTransport(); fake.ambiguous_create = True
     receipt = asyncio.run(RhinoMCPGateway(fake).execute_operations(
@@ -123,28 +166,22 @@ def test_ambiguous_create_is_reconciled_without_replay():
     assert receipt["response_recovered"] is True
 
 
-def test_unsupported_operations_fail_closed_or_use_narrow_legacy_fallback():
+def test_incompatible_upstream_plugin_fails_closed_before_mutation():
     operation = [{"op": "duplicate", "targets": ["11111111-1111-1111-1111-111111111111"]}]
-    blocked = asyncio.run(RhinoMCPGateway(FakeTransport()).execute_operations(intent="copy", operations=operation))
+    fake = FakeTransport(); fake.compatible = False
+    blocked = asyncio.run(RhinoMCPGateway(fake).execute_operations(intent="copy", operations=operation, dry_run=False))
     assert blocked["status"] == "blocked"
-
-    calls = []
-    async def legacy(**kwargs):
-        calls.append(kwargs); return {"status": "validated", "transport": "legacy"}
-    routed = asyncio.run(RhinoMCPGateway(FakeTransport(), legacy_executor=legacy).execute_operations(intent="copy", operations=operation))
-    assert routed["transport"] == "legacy" and len(calls) == 1
+    assert "compatible hardened" in blocked["error"]
+    assert not [call for call in fake.calls if call[0] == "duplicate_object"]
 
 
-def test_mixed_supported_and_unsupported_batch_never_falls_back():
-    called = False
-    async def legacy(**_):
-        nonlocal called; called = True; return {}
+def test_mixed_create_and_duplicate_validates_on_hardened_plugin():
     ops = [
         {"op": "create_point", "point": [0, 0, 0]},
         {"op": "duplicate", "targets": ["$op_1"]},
     ]
-    result = asyncio.run(RhinoMCPGateway(FakeTransport(), legacy_executor=legacy).execute_operations(intent="mixed", operations=ops))
-    assert result["status"] == "blocked" and called is False
+    result = asyncio.run(RhinoMCPGateway(FakeTransport()).execute_operations(intent="mixed", operations=ops))
+    assert result["status"] == "validated"
 
 
 def test_alias_resolution_expands_lists_and_rejects_ambiguous_scalar():

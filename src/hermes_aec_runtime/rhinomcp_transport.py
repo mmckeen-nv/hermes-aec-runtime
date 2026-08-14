@@ -139,8 +139,11 @@ class RhinoMCPGateway:
         started = perf_counter()
         try:
             caps = await self.transport.call("describe_capabilities", {})
-            return {"status": "healthy", "endpoint": self.transport.endpoint,
+            compatible = caps.get("protocol_version") == "aec-rhinomcp/1"
+            return {"status": "healthy" if compatible else "incompatible", "endpoint": self.transport.endpoint,
                     "version": caps.get("version"), "command_count": caps.get("command_count", len(caps.get("commands", []))),
+                    "protocol_version": caps.get("protocol_version"),
+                    "required_protocol": "aec-rhinomcp/1",
                     "latency_ms": round((perf_counter() - started) * 1000, 3)}
         except Exception as exc:
             return {"status": "unavailable", "endpoint": self.transport.endpoint,
@@ -173,7 +176,8 @@ class RhinoMCPGateway:
             return scene
 
     async def execute_operations(self, *, intent: str, operations: list[Mapping[str, Any]], dry_run: bool = True,
-                                 idempotency_key: str | None = None) -> dict[str, Any]:
+                                 idempotency_key: str | None = None,
+                                 document_revision: str | None = None) -> dict[str, Any]:
         normalized = normalize_operations(operations)
         canonical = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
         fingerprint = sha256(canonical.encode()).hexdigest()
@@ -191,7 +195,9 @@ class RhinoMCPGateway:
             future = asyncio.get_running_loop().create_future()
             self._inflight[key] = future
         try:
-            receipt = await self._execute_once(intent, normalized, fingerprint, dry_run, key)
+            receipt = await self._execute_once(
+                intent, normalized, fingerprint, dry_run, key, document_revision
+            )
             if key:
                 self._receipts[key] = receipt
             if future and not future.done():
@@ -206,7 +212,8 @@ class RhinoMCPGateway:
                 self._inflight.pop(key, None)
 
     async def _execute_once(self, intent: str, operations: list[dict[str, Any]], fingerprint: str,
-                            dry_run: bool, key: str) -> dict[str, Any]:
+                            dry_run: bool, key: str,
+                            document_revision: str | None) -> dict[str, Any]:
         transaction_id = str(uuid5(NAMESPACE_URL, key)) if key else str(uuid4())
         base = {"schema_version": "1.0", "transaction_id": transaction_id, "intent": intent, "fingerprint": fingerprint}
         try:
@@ -222,7 +229,39 @@ class RhinoMCPGateway:
                     "evidence": ["typed operations valid", "all commands supported by RhinoMCP"]}
 
         async with self._lock:
+            capabilities = await self.transport.call("describe_capabilities", {})
+            protocol = capabilities.get("protocol_version")
+            advertised = capabilities.get("commands", [])
+            command_names = {
+                str(item.get("name")) if isinstance(item, Mapping) else str(item)
+                for item in advertised
+            }
+            required = {item.command for item in commands}
+            if protocol != "aec-rhinomcp/1" or not required.issubset(command_names):
+                missing = sorted(required - command_names)
+                return {
+                    **base,
+                    "status": "blocked",
+                    "transport": "rhinomcp-direct",
+                    "error": "Rhino is not running the compatible hardened AEC RhinoMCP plugin",
+                    "required_protocol": "aec-rhinomcp/1",
+                    "observed_protocol": protocol,
+                    "missing_commands": missing,
+                    "created_ids": [], "modified_ids": [], "deleted_ids": [],
+                }
             before = await self._scene_unlocked()
+            if document_revision and before.get("document_revision") != document_revision:
+                return {
+                    **base,
+                    "status": "blocked",
+                    "transport": "rhinomcp-direct",
+                    "error": "document revision changed after scene query",
+                    "expected_document_revision": document_revision,
+                    "current_document_revision": before.get("document_revision"),
+                    "created_ids": [],
+                    "modified_ids": [],
+                    "deleted_ids": [],
+                }
             aliases: dict[str, list[str]] = {}
             results: list[dict[str, Any]] = []
             ambiguous: Exception | None = None
@@ -235,15 +274,21 @@ class RhinoMCPGateway:
                     if command.bind:
                         if not ids:
                             raise RhinoMCPTransportError(f"{command.command} returned no IDs for ${command.bind}")
-                        aliases[command.bind] = ids
+                        aliases.setdefault(command.bind, []).extend(ids)
                     results.append({"command": command.command, "params": params, "result": result})
             except RhinoMCPAmbiguousWrite as exc:
                 ambiguous = exc
             except Exception as exc:
                 failed = exc
             after = await self._scene_unlocked()
-            created = sorted(set(_ids(after)) - set(_ids(before)))
-            deleted = sorted(set(_ids(before)) - set(_ids(after)))
+            before_objects = {str(item["id"]): item for item in before.get("objects", [])}
+            after_objects = {str(item["id"]): item for item in after.get("objects", [])}
+            created = sorted(after_objects.keys() - before_objects.keys())
+            deleted = sorted(before_objects.keys() - after_objects.keys())
+            modified = sorted(
+                object_id for object_id in before_objects.keys() & after_objects.keys()
+                if before_objects[object_id].get("content_hash") != after_objects[object_id].get("content_hash")
+            )
             if ambiguous is not None and command.bind and command.result_ids_field in {"id", "result_id"}:
                 already_bound = {value for values in aliases.values() for value in values}
                 candidates = sorted(set(created) - already_bound)
@@ -257,15 +302,17 @@ class RhinoMCPGateway:
             }
             expected_existing = {
                 str(item["params"]["id"]) for item in results
-                if item["command"] == "update_object_attributes" and item["params"].get("id")
+                if item["command"] in {"update_object_attributes", "transform_object_in_place"}
+                and item["params"].get("id")
             }
             has_output_evidence = bool(expected_created or not any(item.bind for item in commands))
             verified = (has_output_evidence and all(value in after_ids for value in set(expected_created) | expected_existing)
+                        and expected_existing.issubset(set(modified))
                         and all(value not in after_ids for value in expected_deleted))
             status = ("failed" if failed is not None else "completed" if ambiguous is None and verified
                       else "reconciled" if ambiguous is not None and verified else "unknown")
             receipt = {**base, "status": status, "transport": "rhinomcp-direct", "commands_completed": len(results),
-                       "created_ids": created, "deleted_ids": deleted, "outputs": aliases,
+                       "created_ids": created, "modified_ids": modified, "deleted_ids": deleted, "outputs": aliases,
                        "before_revision": before.get("document_revision"), "after_revision": after.get("document_revision"),
                        "verified": verified, "results": results}
             if failed:

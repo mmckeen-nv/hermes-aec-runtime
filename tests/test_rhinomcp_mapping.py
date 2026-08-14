@@ -21,13 +21,20 @@ def test_closed_polyline_is_closed_explicitly_for_plugin():
     assert command.params["params"]["points"][0] == command.params["params"]["points"][-1]
 
 
-@pytest.mark.parametrize("operation,match", [
-    ({"op": "transform_in_place", "targets": ["11111111-1111-1111-1111-111111111111"], "translation": [1, 0, 0]}, "stable-ID"),
-    ({"op": "duplicate", "targets": ["11111111-1111-1111-1111-111111111111"]}, "no typed duplicate"),
-])
-def test_fails_closed_where_rhinomcp_cannot_preserve_contract(operation, match):
-    with pytest.raises(RhinoMCPMappingError, match=match):
-        compile_rhinomcp_commands([operation])
+def test_maps_hardened_stable_transform_and_duplicate_commands():
+    target = "11111111-1111-1111-1111-111111111111"
+    commands = compile_rhinomcp_commands([
+        {"op": "transform_in_place", "id": "turned", "targets": [target],
+         "rotation": {"axis": [0, 0, 1], "degrees": 90}, "center": [1, 2, 0]},
+        {"op": "duplicate", "id": "copy", "targets": ["$turned"], "translation": [5, 0, 0]},
+    ])
+    assert commands[0].command == "transform_object_in_place"
+    assert commands[0].params == {
+        "id": target, "rotation_axis": [0.0, 0.0, 1.0],
+        "rotation_degrees": 90.0, "center": [1.0, 2.0, 0.0],
+    }
+    assert commands[1].command == "duplicate_object"
+    assert commands[1].params == {"id": "$turned", "translation": [5.0, 0.0, 0.0]}
 
 
 def test_normalizes_scene_and_produces_stable_revision():

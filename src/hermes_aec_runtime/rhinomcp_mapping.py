@@ -87,12 +87,25 @@ def compile_rhinomcp_commands(operations: list[Mapping[str, Any]]) -> list[Rhino
                 raise RhinoMCPMappingError("RhinoMCP boolean_difference requires exactly one base target")
             commands.append(RhinoMCPCommand("boolean_difference", {"base_id": op["targets"][0], "subtract_ids": _targets(op["cutters"]), "delete_sources": op["delete_input"]}, alias, "result_ids"))
         elif kind == "transform_in_place":
-            raise RhinoMCPMappingError(
-                "RhinoMCP modify_object does not satisfy stable-ID in-place transforms; "
-                "its plugin calls Objects.Transform(..., deleteOriginal: true)"
-            )
+            for target in op["targets"]:
+                params: dict[str, Any] = {"id": target}
+                if "translation" in op:
+                    params["translation"] = op["translation"]
+                elif "rotation" in op:
+                    params.update({"rotation_axis": op["rotation"]["axis"], "rotation_degrees": op["rotation"]["degrees"]})
+                    if "center" in op:
+                        params["center"] = op["center"]
+                elif "scale" in op:
+                    params["scale_factor"] = op["scale"]
+                    if "center" in op:
+                        params["center"] = op["center"]
+                commands.append(RhinoMCPCommand("transform_object_in_place", params, alias, "id"))
         elif kind == "duplicate":
-            raise RhinoMCPMappingError("RhinoMCP has no typed duplicate-object command")
+            for target in op["targets"]:
+                params = {"id": target}
+                if "translation" in op:
+                    params["translation"] = op["translation"]
+                commands.append(RhinoMCPCommand("duplicate_object", params, alias, "id"))
         else:  # pragma: no cover - normalize_operations owns the closed set
             raise RhinoMCPMappingError(f"unsupported operation: {kind}")
     return commands

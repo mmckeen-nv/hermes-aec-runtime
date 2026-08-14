@@ -14,6 +14,7 @@ from .flight_recorder import FlightRecorder, make_trace
 from .freecad import FreeCADGateway, freecad_recovery_plan
 from .orchestrator import BlenderWorkflowGateway, FreeCADWorkflowGateway, RhinoWorkflowGateway, WorkflowOrchestrator, build_plan
 from .observability import ExecutionBudget, readiness, storage_ready
+from .rhinomcp_transport import RhinoMCPGateway
 import os
 from pathlib import Path
 
@@ -22,6 +23,7 @@ _blender = BlenderGateway(default_transport)
 _memory = FilesystemDMLAdapter(Path(os.environ.get("HERMES_AEC_MEMORY_ROOT", ".hermes-aec-memory")))
 _recorder = FlightRecorder(Path(os.environ.get("HERMES_AEC_TRACE_PATH", ".hermes-aec-traces/traces.jsonl")))
 _freecad = FreeCADGateway()
+_rhino_direct = RhinoMCPGateway()
 _workflow = WorkflowOrchestrator(
     {"rhino": RhinoWorkflowGateway(RhinoClient()), "blender": BlenderWorkflowGateway(_blender), "freecad": FreeCADWorkflowGateway(_freecad)},
     recorder=_recorder, memory=_memory,
@@ -217,13 +219,34 @@ async def rhino_verify(
 @mcp.tool()
 async def rhino_health() -> dict:
     """Check the Rhino MCP bridge and report latency, connection, retry, and failure counters."""
-    return await RhinoClient().health()
+    return await _rhino_direct.health()
 
 
 @mcp.tool()
 async def rhino_scene_query(query: dict | None = None, audit_limit: int = 2000) -> dict:
     """Run one rich, revisioned Rhino audit and return only objects matching focused name, layer, kind, ID, relationship, proximity, containment, or intersection selectors."""
-    return await RhinoClient().scene_query(query=query, audit_limit=audit_limit)
+    scene = await _rhino_direct.scene_index(max_objects=audit_limit)
+    if not query:
+        return scene
+    objects = scene.get("objects", [])
+    ids = {str(value) for value in query.get("ids", [])} if query.get("ids") else None
+    name = str(query.get("name", "")).casefold()
+    layer = str(query.get("layer", "")).casefold()
+    kind = str(query.get("kind", query.get("geometry_type", ""))).casefold()
+    selected = []
+    for item in objects:
+        if ids is not None and str(item.get("id")) not in ids:
+            continue
+        if name and name not in str(item.get("name", "")).casefold():
+            continue
+        if layer and layer not in str(item.get("layer", "")).casefold():
+            continue
+        if kind and kind != str(item.get("type", item.get("kind", ""))).casefold():
+            continue
+        selected.append(item)
+        if len(selected) >= int(query.get("limit", 100)):
+            break
+    return {**scene, "objects": selected, "count": len(selected), "query": query}
 
 
 @mcp.tool()
@@ -236,25 +259,12 @@ async def rhino_apply_operations(
     checkpoint_path: str | None = None,
 ) -> dict:
     """Validate and execute one typed Rhino operation batch. Supports primitives, in-place transforms, duplicate/delete, attributes, extrusion, offset, and booleans without model-generated RhinoCommon."""
-    try:
-        compiled = compile_transaction(operations)
-    except OperationValidationError as exc:
-        return {"schema_version": "1.0", "status": "blocked", "error": str(exc)}
-    current_revision = await RhinoClient().document_revision()
-    if current_revision != document_revision:
-        return {
-            "schema_version": "1.0", "status": "blocked",
-            "error": "document revision changed after scene query",
-            "expected_document_revision": document_revision,
-            "current_document_revision": current_revision,
-            "recovery": "Run rhino_scene_query again and rebuild target IDs before executing.",
-        }
-    receipt = await RhinoClient().execute_python(
+    receipt = await _rhino_direct.execute_operations(
         intent=intent,
-        script=compiled.script,
-        expected_change=compiled.expected_change,
+        operations=operations,
         dry_run=dry_run,
         idempotency_key=idempotency_key,
+        document_revision=document_revision,
     )
     if receipt.get("status") == "completed" and checkpoint_path and not dry_run:
         try:
@@ -264,8 +274,8 @@ async def rhino_apply_operations(
             receipt["checkpoint"] = {"path": checkpoint_path, "status": "unknown", "error": str(exc)}
     return {
         **receipt,
-        "semantic_fingerprint": compiled.fingerprint,
-        "normalized_transaction": compiled.normalized,
+        "semantic_fingerprint": receipt.get("fingerprint"),
+        "normalized_transaction": {"operations": operations},
     }
 
 
