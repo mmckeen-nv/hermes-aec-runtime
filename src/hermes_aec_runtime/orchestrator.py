@@ -17,6 +17,7 @@ from .operations import compile_transaction
 from .freecad_operations import compile_freecad_transaction
 from .router import RequestRoute, route_request
 from .verification import verify_transaction
+from .observability import ExecutionBudget, RunMetrics, bounded_stage, correlation_id as safe_correlation_id
 
 
 class WorkflowGateway(Protocol):
@@ -68,6 +69,8 @@ class WorkflowResult:
     memory: MemoryOutcome | None = None
     trace_id: str | None = None
     trace_appended: bool = False
+    correlation_id: str | None = None
+    metrics: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,6 +79,7 @@ class WorkflowResult:
             "after": self.after, "verification": self.verification,
             "memory": self.memory.to_dict() if self.memory else None,
             "trace_id": self.trace_id, "trace_appended": self.trace_appended,
+            "correlation_id": self.correlation_id, "metrics": self.metrics,
         }
 
 
@@ -97,6 +101,8 @@ def build_plan(
         elif route.host == "freecad": compiled = compile_freecad_transaction(list(ops))
         else: compiled = compile_transaction(ops)
         normalized = compiled.normalized
+        if not isinstance(normalized, dict):
+            normalized = {"operations": list(normalized)}
         signature = compiled.fingerprint
     return WorkflowPlan(route, FocusedQuery(route.target_terms, query_limit), ops, normalized, signature)
 
@@ -115,30 +121,38 @@ class WorkflowOrchestrator:
         active_host: str = "rhino", idempotency_key: str = "", dry_run: bool = False,
         assertions: dict[str, Any] | None = None, project_id: str = "default",
         model: dict[str, Any] | None = None, token_usage: dict[str, Any] | None = None,
+        budget: ExecutionBudget | None = None, correlation_id: str | None = None,
     ) -> WorkflowResult:
+        budget = budget or ExecutionBudget()
+        metrics = RunMetrics(trace_id=safe_correlation_id(correlation_id))
+        def stage_budget(limit: float) -> float:
+            remaining = budget.total_seconds - (perf_counter() - metrics.started)
+            if remaining <= 0:
+                raise TimeoutError("workflow total budget exhausted")
+            return min(limit, remaining)
         plan = build_plan(request, operations, active_host=active_host)
         gateway = self.gateways.get(plan.route.host)
         if gateway is None:
             raise ValueError(f"no workflow gateway configured for host {plan.route.host!r}")
         started = perf_counter()
-        before = await gateway.query(plan.query.to_dict())
+        before = await bounded_stage(metrics, "scene_query", stage_budget(budget.query_seconds), gateway.query(plan.query.to_dict()))
         if not plan.route.mutates:
-            return WorkflowResult("inspected", plan, before)
+            return WorkflowResult("inspected", plan, before, correlation_id=metrics.trace_id, metrics=metrics.snapshot())
         if not idempotency_key.strip():
             raise ValueError("idempotency_key is required for mutations")
 
         try:
-            receipt = await gateway.execute_typed(
+            receipt = await bounded_stage(metrics, "mutation", stage_budget(budget.mutation_seconds), gateway.execute_typed(
                 intent=plan.route.intent.value, operations=list(plan.operations),
                 idempotency_key=idempotency_key, dry_run=dry_run,
                 document_revision=before.get("document_revision"),
-            )
+            ))
         except Exception as exc:
             # A lost mutation response is ambiguous. Never retry it here; persist
             # enough evidence for the host recovery path to reconcile it.
             receipt = {
                 "schema_version": "1.0", "status": "unknown", "transaction_id": None,
-                "error": f"{type(exc).__name__}: {exc}",
+                "error_code": type(exc).__name__,
                 "recovery": "Re-index the host and reconcile before retrying with the same idempotency key.",
             }
         receipt = dict(receipt)
@@ -146,24 +160,24 @@ class WorkflowOrchestrator:
         receipt.setdefault("actions_completed", len(plan.operations) if receipt.get("status") == "completed" else 0)
         if dry_run or receipt.get("status") != "completed":
             verification = {"schema_version": "1.0", "status": "not_run", "passed": [], "failed": ["host mutation did not complete"]}
-            return await self._finish(plan, request, before, None, receipt, verification, project_id, started, model, token_usage)
+            return await self._finish(plan, request, before, None, receipt, verification, project_id, started, model, token_usage, metrics)
 
         try:
-            after = await gateway.query(plan.query.to_dict())
+            after = await bounded_stage(metrics, "verification_query", stage_budget(budget.verification_seconds), gateway.query(plan.query.to_dict()))
             verification = verify_transaction(receipt, before, after, assertions).to_dict()
         except Exception as exc:
             after = None
             verification = {
                 "schema_version": "1.0", "status": "failed", "passed": [],
-                "failed": [f"post-mutation scene query failed: {type(exc).__name__}: {exc}"],
+                "failed": [f"post-mutation scene query failed: {type(exc).__name__}"],
                 "transaction_id": receipt.get("transaction_id"),
             }
-        return await self._finish(plan, request, before, after, receipt, verification, project_id, started, model, token_usage)
+        return await self._finish(plan, request, before, after, receipt, verification, project_id, started, model, token_usage, metrics)
 
     async def _finish(
         self, plan: WorkflowPlan, request: str, before: dict[str, Any], after: dict[str, Any] | None,
         receipt: dict[str, Any], verification: dict[str, Any], project_id: str, started: float,
-        model: dict[str, Any] | None, token_usage: dict[str, Any] | None,
+        model: dict[str, Any] | None, token_usage: dict[str, Any] | None, metrics: RunMetrics,
     ) -> WorkflowResult:
         outcome = create_outcome(
             project_id=project_id, host=plan.route.host, receipt=receipt,
@@ -174,15 +188,16 @@ class WorkflowOrchestrator:
         trace = make_trace(
             request=request, route=plan.route.to_dict(), scene_subset=before,
             transaction=plan.normalized_transaction or {},
-            timing={"total_ms": round((perf_counter() - started) * 1000, 3)}, tool_outcomes=[],
+            timing=metrics.snapshot(), tool_outcomes=[],
             receipt=receipt, verification=verification, model=model, token_usage=token_usage,
+            correlation_id=metrics.trace_id,
         )
         appended = self.recorder.append(trace) if self.recorder is not None else False
         status = (
             "verified" if verification.get("status") == "verified" else
             "unverified" if receipt.get("status") == "completed" else receipt.get("status", "failed")
         )
-        return WorkflowResult(status, plan, before, receipt, after, verification, outcome, trace["trace_id"], appended)
+        return WorkflowResult(status, plan, before, receipt, after, verification, outcome, trace["trace_id"], appended, metrics.trace_id, metrics.snapshot())
 
 
 class RhinoWorkflowGateway:
@@ -208,7 +223,7 @@ class BlenderWorkflowGateway:
     async def query(self, query: dict[str, Any]) -> dict[str, Any]:
         return _focus_scene(await self.gateway.scene_preprocessing(), query)
     async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool, document_revision: str | None = None) -> dict[str, Any]:
-        return await self.gateway.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
+        return await self.gateway.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run, document_revision=document_revision)
 
 
 class FreeCADWorkflowGateway:
@@ -217,7 +232,7 @@ class FreeCADWorkflowGateway:
     async def query(self, query: dict[str, Any]) -> dict[str, Any]:
         return _focus_scene(await self.gateway.scene_query(), query)
     async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool, document_revision: str | None = None) -> dict[str, Any]:
-        return await self.gateway.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
+        return await self.gateway.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run, document_revision=document_revision)
 
 
 def _focus_scene(scene: dict[str, Any], query: dict[str, Any]) -> dict[str, Any]:

@@ -100,7 +100,7 @@ def make_trace(
     transaction: Mapping[str, Any], timing: Mapping[str, Any], tool_outcomes: Iterable[Mapping[str, Any]],
     receipt: Mapping[str, Any], verification: Mapping[str, Any], recovery: Mapping[str, Any] | None = None,
     model: Mapping[str, Any] | None = None, token_usage: Mapping[str, Any] | None = None,
-    created_at: int | None = None, gate: TrainingGate = TrainingGate(),
+    created_at: int | None = None, gate: TrainingGate = TrainingGate(), correlation_id: str | None = None,
 ) -> dict[str, Any]:
     supplied = {
         "schema_version": TRACE_SCHEMA, "created_at": int(time.time() * 1000) if created_at is None else created_at,
@@ -108,6 +108,7 @@ def make_trace(
         "transaction": transaction, "timing": timing, "tool_outcomes": list(tool_outcomes),
         "receipt": receipt, "verification": verification, "recovery": recovery or {},
         "model": model or {}, "token_usage": token_usage or {},
+        "correlation_id": correlation_id or "",
     }
     if _contains_transcript(supplied):
         raise ValueError("raw transcripts/messages are forbidden in Flight Recorder traces")

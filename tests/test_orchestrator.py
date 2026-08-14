@@ -7,6 +7,7 @@ import pytest
 from hermes_aec_runtime.flight_recorder import FlightRecorder
 from hermes_aec_runtime.memory import MemoryDMLAdapter
 from hermes_aec_runtime.orchestrator import RhinoWorkflowGateway, WorkflowOrchestrator, build_plan
+from hermes_aec_runtime.observability import ExecutionBudget
 
 
 class FakeGateway:
@@ -134,3 +135,31 @@ def test_rhino_gateway_blocks_stale_document_revision_before_mutation():
     ))
     assert receipt["status"] == "blocked"
     assert client.executed is False
+
+
+def test_workflow_emits_correlated_stage_metrics(tmp_path):
+    result = asyncio.run(WorkflowOrchestrator(
+        {"rhino": FakeGateway()}, recorder=FlightRecorder(tmp_path / "flight.jsonl"),
+    ).run(
+        request="Add a fence", operations=[{"op": "create_point", "point": [0, 0, 0]}],
+        idempotency_key="metrics:1", correlation_id="demo:42",
+        assertions={"object_count_delta": 1}, budget=ExecutionBudget(query_seconds=1, mutation_seconds=1, verification_seconds=1, total_seconds=3),
+    ))
+    assert result.correlation_id == "demo:42"
+    assert [stage["stage"] for stage in result.metrics["stages"]] == ["scene_query", "mutation", "verification_query"]
+    trace = list(FlightRecorder(tmp_path / "flight.jsonl").read())[0]
+    assert trace["correlation_id"] == "demo:42"
+    assert trace["timing"]["trace_id"] == "demo:42"
+
+
+def test_workflow_timeout_is_unknown_and_never_leaks_exception_message(tmp_path):
+    class SlowGateway(FakeGateway):
+        async def execute_typed(self, **kwargs):
+            await asyncio.sleep(.05)
+    result = asyncio.run(WorkflowOrchestrator({"rhino": SlowGateway()}).run(
+        request="Add a fence", operations=[{"op": "create_point", "point": [0, 0, 0]}],
+        idempotency_key="timeout:1", budget=ExecutionBudget(query_seconds=1, mutation_seconds=.001, verification_seconds=1, total_seconds=2),
+    ))
+    assert result.status == "unknown"
+    assert result.receipt["error_code"] == "TimeoutError"
+    assert "response lost" not in str(result.to_dict())

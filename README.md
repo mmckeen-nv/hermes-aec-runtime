@@ -5,6 +5,7 @@ An independent sidecar that lets Hermes inspect and change Rhino, FreeCAD, and B
 The normal Rhino surface is:
 
 - `rhino_health` — confirm the host is ready.
+- `aec_runtime_health` — report storage readiness and optionally prove a host can answer a bounded read.
 - `rhino_scene_query` — find objects and obtain stable IDs, units, and document revision.
 - `rhino_apply_operations` — apply one idempotent batch of typed geometry operations.
 - `rhino_verify_transaction` — verify the resulting model delta and assertions.

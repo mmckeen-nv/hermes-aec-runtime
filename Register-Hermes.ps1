@@ -42,6 +42,7 @@ foreach ($Name in $Profile) {
     $ToolLines = @(
         "        - aec_workflow_plan"
         "        - aec_run_workflow"
+        "        - aec_runtime_health"
         "        - route_aec_request",
         "        - rhino_scene_query",
         "        - rhino_apply_operations",

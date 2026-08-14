@@ -13,6 +13,7 @@ from .memory import FilesystemDMLAdapter, create_outcome
 from .flight_recorder import FlightRecorder, make_trace
 from .freecad import FreeCADGateway, freecad_recovery_plan
 from .orchestrator import BlenderWorkflowGateway, FreeCADWorkflowGateway, RhinoWorkflowGateway, WorkflowOrchestrator, build_plan
+from .observability import ExecutionBudget, readiness, storage_ready
 import os
 from pathlib import Path
 
@@ -53,10 +54,32 @@ def aec_workflow_plan(request: str, operations: list[dict] | None = None, active
 
 
 @mcp.tool()
-async def aec_run_workflow(request: str, operations: list[dict] | None = None, active_host: str = "rhino", idempotency_key: str = "", dry_run: bool = False, assertions: dict | None = None, project_id: str = "default", model: dict | None = None, token_usage: dict | None = None) -> dict:
+async def aec_run_workflow(request: str, operations: list[dict] | None = None, active_host: str = "rhino", idempotency_key: str = "", dry_run: bool = False, assertions: dict | None = None, project_id: str = "default", model: dict | None = None, token_usage: dict | None = None, budget: dict | None = None, correlation_id: str | None = None) -> dict:
     """Run focused query, one typed mutation, independent verification, memory promotion, and trace recording as one deterministic workflow."""
-    result = await _workflow.run(request=request, operations=operations or (), active_host=active_host, idempotency_key=idempotency_key, dry_run=dry_run, assertions=assertions, project_id=project_id, model=model, token_usage=token_usage)
+    limits = ExecutionBudget.from_mapping(budget)
+    result = await _workflow.run(request=request, operations=operations or (), active_host=active_host, idempotency_key=idempotency_key, dry_run=dry_run, assertions=assertions, project_id=project_id, model=model, token_usage=token_usage, budget=limits, correlation_id=correlation_id)
     return result.to_dict()
+
+
+@mcp.tool()
+async def aec_runtime_health(active_host: str | None = None, timeout_seconds: float = 5.0) -> dict:
+    """Report sidecar readiness; optionally prove a configured host can answer a bounded read."""
+    async def local_storage() -> None:
+        if not storage_ready(_recorder.path):
+            raise RuntimeError("trace storage is unavailable")
+
+    probes = {"flight_recorder": local_storage}
+    if active_host:
+        host_name = active_host.lower()
+        gateway = _workflow.gateways.get(host_name)
+        if gateway is None:
+            async def missing_host() -> None: raise RuntimeError("host is not configured")
+            probes["requested_host"] = missing_host
+        else:
+            async def host_read() -> None:
+                await gateway.query({"terms": [], "limit": 1})
+            probes[f"host:{host_name}"] = host_read
+    return await readiness(probes, timeout_seconds=timeout_seconds)
 
 
 @mcp.tool()
