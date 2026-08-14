@@ -51,3 +51,9 @@ def test_fails_in_place_modification_without_independent_hash_change():
     result = verify_transaction(receipt, before, after)
     assert result.status == "failed"
     assert any("did not change" in item for item in result.failed)
+
+
+def test_create_then_attribute_change_in_same_batch_uses_created_delta():
+    receipt = {"status":"completed", "created_ids":["new"], "deleted_ids":[], "operation_result":{"modified":["new"]}}
+    result = verify_transaction(receipt, scene(), scene({"id":"new", "content_hash":"final"}))
+    assert result.status == "verified"

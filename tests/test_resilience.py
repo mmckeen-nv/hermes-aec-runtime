@@ -126,3 +126,18 @@ def test_unreconciled_lost_response_is_sticky_and_not_reexecuted():
     assert first["status"] == "unknown"
     assert second["replayed"] is True
     assert client.recoveries == calls_after_first
+
+
+def test_generated_rhino_wrapper_is_valid_python():
+    class CompilingClient(RhinoClient):
+        @asynccontextmanager
+        async def session(self): yield object()
+        async def _call(self, session, name, arguments):
+            compile(arguments["script"], "<generated-rhino-wrapper>", "exec")
+            return {"stdout":""}
+        async def _recover_receipt(self, transaction_id): return None
+    result = asyncio.run(CompilingClient("http://unused/").execute_python(
+        intent="compile wrapper", script="print(__rhino_doc__.Name)", expected_change="none",
+        dry_run=False, idempotency_key="wrapper-syntax-regression",
+    ))
+    assert result["status"] == "unknown"

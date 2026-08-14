@@ -343,7 +343,7 @@ if rollback_requested:
     try:
         rollback_succeeded = bool(doc.Undo())
     except Exception:
-        error = error + "\nROLLBACK ERROR:\n" + traceback.format_exc()
+        error = error + "\\nROLLBACK ERROR:\\n" + traceback.format_exc()
 after = {{str(o.Id) for o in doc.Objects}}
 receipt = {{
     "schema_version": "1.0", "transaction_id": tx_id, "fingerprint": {fingerprint!r},

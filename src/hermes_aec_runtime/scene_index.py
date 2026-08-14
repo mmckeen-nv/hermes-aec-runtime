@@ -177,9 +177,13 @@ for obj in doc.Objects:
             "bounds": {{"min": [bbox.Min.X, bbox.Min.Y, bbox.Min.Z], "max": [bbox.Max.X, bbox.Max.Y, bbox.Max.Z]}},
             "groups": groups,
         }}
+        try:
+            geometry_digest = hashlib.sha256(geometry.ToJSON(None).encode("utf-8")).hexdigest()
+        except Exception:
+            geometry_digest = hashlib.sha256(json.dumps([row["kind"], row["bounds"]], sort_keys=True).encode("utf-8")).hexdigest()
         content_source = [
             row["kind"], row["name"], row["layer"], row["visible"], row["locked"],
-            row["bounds"], groups, int(geometry.GetHashCode()),
+            row["bounds"], groups, geometry_digest,
             int(obj.Attributes.ObjectColor.ToArgb()), int(obj.Attributes.MaterialIndex),
         ]
         row["content_hash"] = hashlib.sha256(json.dumps(content_source, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -203,6 +207,9 @@ if objects:
     }}
 payload = {{
     "schema_version": "{SCENE_SCHEMA_VERSION}",
+    "scene_contract_version": "aec-scene-index/1.0",
+    "host": "rhino",
+    "document_id": str(doc.RuntimeSerialNumber),
     "document_revision": revision,
     "document": {{"id": str(doc.RuntimeSerialNumber), "name": doc.Name or "", "path": doc.Path or ""}},
     "units": str(doc.ModelUnitSystem),

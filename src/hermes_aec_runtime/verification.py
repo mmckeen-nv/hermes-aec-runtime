@@ -81,7 +81,9 @@ def verify_transaction(
         failed.append(f"deleted ID mismatch receipt={sorted(receipt_deleted)} observed={sorted(observed_deleted)}")
 
     before_objects, after_objects = _by_id(before), _by_id(after)
-    for object_id in sorted(receipt_modified):
+    # Attributes/transforms applied to an object created in the same batch are
+    # already proven by the created-ID delta; there is no before hash to compare.
+    for object_id in sorted(receipt_modified - receipt_created):
         prior, current = before_objects.get(str(object_id)), after_objects.get(str(object_id))
         if prior is None or current is None:
             failed.append(f"modified ID missing from independent snapshots: {object_id}")

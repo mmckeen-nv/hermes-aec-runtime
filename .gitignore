@@ -4,4 +4,6 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .runtime/
+.hermes-aec-memory/
+.hermes-aec-traces/
 config.local.json
