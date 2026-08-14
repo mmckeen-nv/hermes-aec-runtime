@@ -15,6 +15,7 @@ from .freecad import FreeCADGateway, freecad_recovery_plan
 from .orchestrator import BlenderWorkflowGateway, FreeCADWorkflowGateway, RhinoWorkflowGateway, WorkflowOrchestrator, build_plan
 from .observability import ExecutionBudget, readiness, storage_ready
 from .rhinomcp_transport import RhinoMCPGateway
+from .operation_models import RhinoOperationInput, dump_operations
 import os
 from pathlib import Path
 
@@ -50,16 +51,16 @@ def route_aec_request(request: str, active_host: str = "rhino") -> dict:
 
 
 @mcp.tool()
-def aec_workflow_plan(request: str, operations: list[dict] | None = None, active_host: str = "rhino", query_limit: int = 40) -> dict:
-    """Route and validate an entire AEC request before any host call or mutation."""
-    return build_plan(request, operations or (), active_host=active_host, query_limit=query_limit).to_dict()
+def aec_workflow_plan(request: str, operations: list[RhinoOperationInput] | None = None, active_host: str = "rhino", query_limit: int = 40) -> dict:
+    """Route and validate an AEC request. Rhino operations use the exact per-op schema shown here; names/layers belong in a separate set_attributes operation."""
+    return build_plan(request, dump_operations(operations), active_host=active_host, query_limit=query_limit).to_dict()
 
 
 @mcp.tool()
-async def aec_run_workflow(request: str, operations: list[dict] | None = None, active_host: str = "rhino", idempotency_key: str = "", dry_run: bool = False, assertions: dict | None = None, project_id: str = "default", model: dict | None = None, token_usage: dict | None = None, budget: dict | None = None, correlation_id: str | None = None) -> dict:
+async def aec_run_workflow(request: str, operations: list[RhinoOperationInput] | None = None, active_host: str = "rhino", idempotency_key: str = "", dry_run: bool = False, assertions: dict | None = None, project_id: str = "default", model: dict | None = None, token_usage: dict | None = None, budget: dict | None = None, correlation_id: str | None = None) -> dict:
     """Run focused query, one typed mutation, independent verification, memory promotion, and trace recording as one deterministic workflow."""
     limits = ExecutionBudget.from_mapping(budget)
-    result = await _workflow.run(request=request, operations=operations or (), active_host=active_host, idempotency_key=idempotency_key, dry_run=dry_run, assertions=assertions, project_id=project_id, model=model, token_usage=token_usage, budget=limits, correlation_id=correlation_id)
+    result = await _workflow.run(request=request, operations=dump_operations(operations), active_host=active_host, idempotency_key=idempotency_key, dry_run=dry_run, assertions=assertions, project_id=project_id, model=model, token_usage=token_usage, budget=limits, correlation_id=correlation_id)
     return result.to_dict()
 
 
@@ -252,16 +253,17 @@ async def rhino_scene_query(query: dict | None = None, audit_limit: int = 2000) 
 @mcp.tool()
 async def rhino_apply_operations(
     intent: str,
-    operations: list[dict],
+    operations: list[RhinoOperationInput],
     idempotency_key: str,
     document_revision: str,
     dry_run: bool = False,
     checkpoint_path: str | None = None,
 ) -> dict:
-    """Validate and execute one typed Rhino operation batch. Supports primitives, in-place transforms, duplicate/delete, attributes, extrusion, offset, and booleans without model-generated RhinoCommon."""
+    """Execute one typed Rhino batch. Creation ops contain geometry only. To label or layer a new object, give it an id then add set_attributes targeting $id; never send an attributes field on create ops."""
+    normalized_operations = dump_operations(operations)
     receipt = await _rhino_direct.execute_operations(
         intent=intent,
-        operations=operations,
+        operations=normalized_operations,
         dry_run=dry_run,
         idempotency_key=idempotency_key,
         document_revision=document_revision,
@@ -275,7 +277,7 @@ async def rhino_apply_operations(
     return {
         **receipt,
         "semantic_fingerprint": receipt.get("fingerprint"),
-        "normalized_transaction": {"operations": operations},
+        "normalized_transaction": {"operations": normalized_operations},
     }
 
 
