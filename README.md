@@ -25,6 +25,8 @@ Windows PowerShell:
 .\Start.ps1
 ```
 
+After installation, double-click the **AEC Runtime Test** desktop shortcut or run `Test-Sidecar.ps1` to see and time the complete mock workflow.
+
 Linux/macOS:
 
 ```bash
@@ -48,4 +50,3 @@ The MCP server uses stdio. Add the generated entry from `.runtime/hermes-mcp.jso
 - Host-specific behavior lives behind adapters; model prompts do not contain raw UI choreography.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEMO_INTEGRATION.md](docs/DEMO_INTEGRATION.md).
-
