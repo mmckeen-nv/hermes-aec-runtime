@@ -84,3 +84,45 @@ def test_changed_payload_cannot_reuse_idempotency_key():
     ))
     assert conflict["status"] == "blocked"
     assert "different payload" in conflict["error"]
+
+
+def test_concurrent_same_key_has_exactly_one_mutation():
+    class CountingClient(RhinoClient):
+        def __init__(self):
+            super().__init__(url="http://unused/")
+            object.__setattr__(self, "mutations", 0)
+
+        async def _execute_python_once(self, **kwargs):
+            self.mutations += 1
+            await asyncio.sleep(0.02)
+            fingerprint = sha256(
+                f"{kwargs['intent']}\0{kwargs['script']}\0{kwargs['expected_change']}".encode()
+            ).hexdigest()
+            return {"status": "completed", "transaction_id": "one", "fingerprint": fingerprint}
+
+    async def exercise():
+        client = CountingClient()
+        args = dict(intent="edit", script="print(__rhino_doc__.Name)", expected_change="one", dry_run=False, idempotency_key="concurrent-key")
+        receipts = await asyncio.gather(client.execute_python(**args), client.execute_python(**args))
+        return client, receipts
+
+    client, receipts = asyncio.run(exercise())
+    assert client.mutations == 1
+    assert receipts[0]["transaction_id"] == receipts[1]["transaction_id"]
+    assert receipts[1]["concurrent_replay"] is True
+
+
+def test_unreconciled_lost_response_is_sticky_and_not_reexecuted():
+    class LostClient(RecoveringClient):
+        async def _recover_receipt(self, transaction_id):
+            self.recoveries += 1
+            return None
+
+    client = LostClient()
+    kwargs = dict(intent="create", script="print(__rhino_doc__.Name)", expected_change="one", dry_run=False, idempotency_key="sticky-unknown")
+    first = asyncio.run(client.execute_python(**kwargs))
+    calls_after_first = client.recoveries
+    second = asyncio.run(client.execute_python(**kwargs))
+    assert first["status"] == "unknown"
+    assert second["replayed"] is True
+    assert client.recoveries == calls_after_first

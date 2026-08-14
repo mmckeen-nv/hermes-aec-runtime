@@ -39,8 +39,12 @@ def test_mutation_receipt_is_idempotent_and_payload_bound():
 
 def test_mutation_disconnect_is_unknown_and_not_retried():
     state = {"calls": [], "failures": 1}
-    result = asyncio.run(gateway(state).execute(intent="save", operations=[{"op": "save_blend", "path": "a.blend"}], idempotency_key="save-1"))
+    client = gateway(state)
+    kwargs = dict(intent="save", operations=[{"op": "save_blend", "path": "a.blend"}], idempotency_key="save-1")
+    result = asyncio.run(client.execute(**kwargs))
+    replay = asyncio.run(client.execute(**kwargs))
     assert result["status"] == "unknown"
+    assert replay["replayed"] is True
     assert len(state["calls"]) == 1
 
 

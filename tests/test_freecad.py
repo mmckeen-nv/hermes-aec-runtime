@@ -34,6 +34,7 @@ def test_rejects_unknown_fields_and_bad_aliases():
 def test_gateway_scene_and_idempotent_mutation():
     transport=FakeTransport(); gateway=FreeCADGateway(lambda:transport)
     scene=asyncio.run(gateway.scene_query()); assert scene["count"] == 1
+    assert scene["objects"][0]["id"] == "Wall"
     kwargs={"intent":"wall", "operations":[{"op":"create_box","id":"w","length":1,"width":1,"height":1}], "idempotency_key":"request-wall"}
     first=asyncio.run(gateway.execute(**kwargs)); second=asyncio.run(gateway.execute(**kwargs))
     assert first["status"] == "completed" and second["replayed"] is True
@@ -41,9 +42,12 @@ def test_gateway_scene_and_idempotent_mutation():
 
 
 def test_lost_response_is_unknown_and_requires_reconciliation():
-    gateway=FreeCADGateway(lambda:FakeTransport(fail=True))
-    receipt=asyncio.run(gateway.execute(intent="wall", operations=[{"op":"create_box","id":"w","length":1,"width":1,"height":1}], idempotency_key="lost"))
+    transport=FakeTransport(fail=True); gateway=FreeCADGateway(lambda:transport)
+    kwargs=dict(intent="wall", operations=[{"op":"create_box","id":"w","length":1,"width":1,"height":1}], idempotency_key="lost")
+    receipt=asyncio.run(gateway.execute(**kwargs)); replay=asyncio.run(gateway.execute(**kwargs))
     assert receipt["status"] == "unknown"
+    assert replay["replayed"] is True
+    assert len(transport.calls) == 1
     assert freecad_recovery_plan(receipt)["action"] == "reconcile"
 
 

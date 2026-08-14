@@ -106,12 +106,20 @@ class BlenderGateway:
         if dry_run:
             return {"status": "validated", "transaction_id": transaction_id, "fingerprint": compiled.fingerprint, "normalized": compiled.normalized}
         async with self._lock:
+            # Re-check after acquiring the mutation lock. Another coroutine may
+            # have completed while this one was waiting.
+            prior = self._receipts.get(idempotency_key)
+            if prior:
+                if prior["fingerprint"] == compiled.fingerprint: return {**prior, "replayed": True, "concurrent_replay": True}
+                return {"status": "blocked", "transaction_id": transaction_id, "error": "idempotency key is bound to another payload", "prior_receipt": prior}
             try:
                 result = await self._call("execute_blender_code", {"code": compiled.script})
             except Exception as exc:
-                return {"status": "unknown", "transaction_id": transaction_id, "fingerprint": compiled.fingerprint, "error": str(exc), "recovery": "Inspect the scene, then retry with the same idempotency key."}
-        receipt = {"schema_version": "1.0", "host": "blender", "status": "completed", "transaction_id": transaction_id, "intent": intent, "fingerprint": compiled.fingerprint, "result": result}
-        self._receipts[idempotency_key] = receipt
+                receipt = {"status": "unknown", "transaction_id": transaction_id, "fingerprint": compiled.fingerprint, "error": str(exc), "recovery": "Inspect and reconcile the scene; do not issue another mutation blindly."}
+                self._receipts[idempotency_key] = receipt
+                return receipt
+            receipt = {"schema_version": "1.0", "host": "blender", "status": "completed", "transaction_id": transaction_id, "intent": intent, "fingerprint": compiled.fingerprint, "result": result}
+            self._receipts[idempotency_key] = receipt
         return receipt
 
 

@@ -22,3 +22,15 @@ def test_dry_run_blocks_unsafe_document_handles():
     ))
     assert receipt["status"] == "blocked"
     assert "scriptcontext.doc" in receipt["error"]
+
+
+def test_dry_run_blocks_process_and_dynamic_code_escape_hatches():
+    receipt = asyncio.run(RhinoClient("http://not-used/").execute_python(
+        intent="unsafe edit",
+        script="import subprocess\neval('1 + 1')",
+        expected_change="none",
+        dry_run=True,
+    ))
+    assert receipt["status"] == "blocked"
+    assert "import subprocess" in receipt["error"]
+    assert "call eval" in receipt["error"]

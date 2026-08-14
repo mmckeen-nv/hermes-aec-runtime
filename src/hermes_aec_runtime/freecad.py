@@ -53,7 +53,18 @@ class FreeCADGateway:
     async def scene_query(self) -> dict[str, Any]:
         async with self._lock:
             raw = await asyncio.wait_for(self.transport_factory().call("get_document_info", {}), self.timeout_seconds)
-        objects = raw.get("objects", raw.get("document", {}).get("objects", []))
+        source = raw.get("objects", raw.get("document", {}).get("objects", []))
+        objects = []
+        for item in source:
+            name = str(item.get("name") or item.get("Name") or item.get("label") or item.get("Label") or "")
+            stable_id = str(item.get("id") or item.get("uuid") or item.get("Name") or item.get("name") or "")
+            objects.append({
+                "id": stable_id, "name": str(item.get("label") or item.get("Label") or name),
+                "kind": str(item.get("type") or item.get("TypeId") or "UNKNOWN"),
+                "layer": str(item.get("group") or item.get("Group") or ""),
+                "visible": bool(item.get("visible", item.get("Visibility", True))),
+                "bounds": item.get("bounds") or item.get("BoundBox"),
+            })
         return {"schema_version":"freecad-scene-index/1.0", "host":"freecad", "document":raw.get("document", {}), "objects":objects, "count":len(objects)}
 
     async def execute(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool = False) -> dict[str, Any]:
@@ -65,10 +76,17 @@ class FreeCADGateway:
             return {"status":"blocked", "transaction_id":txid, "error":"idempotency key is bound to another payload"}
         if dry_run: return {"status":"validated", "transaction_id":txid, "fingerprint":compiled.fingerprint, "normalized":compiled.normalized}
         async with self._lock:
+            prior = self._receipts.get(idempotency_key)
+            if prior:
+                if prior["fingerprint"] == compiled.fingerprint: return {**prior, "replayed":True, "concurrent_replay":True}
+                return {"status":"blocked", "transaction_id":txid, "error":"idempotency key is bound to another payload", "prior_receipt":prior}
             try: result = await asyncio.wait_for(self.transport_factory().call("execute_code", {"code":compiled.script}), self.timeout_seconds)
-            except Exception as exc: return {"status":"unknown", "transaction_id":txid, "fingerprint":compiled.fingerprint, "error":str(exc), "recovery":"Inspect the document, then retry only with the same idempotency key."}
-        receipt = {"schema_version":"1.0", "host":"freecad", "status":"completed", "transaction_id":txid, "intent":intent, "fingerprint":compiled.fingerprint, "result":result}
-        self._receipts[idempotency_key] = receipt
+            except Exception as exc:
+                receipt = {"status":"unknown", "transaction_id":txid, "fingerprint":compiled.fingerprint, "error":str(exc), "recovery":"Inspect and reconcile the document; do not issue another mutation blindly."}
+                self._receipts[idempotency_key] = receipt
+                return receipt
+            receipt = {"schema_version":"1.0", "host":"freecad", "status":"completed", "transaction_id":txid, "intent":intent, "fingerprint":compiled.fingerprint, "result":result}
+            self._receipts[idempotency_key] = receipt
         return receipt
 
 
