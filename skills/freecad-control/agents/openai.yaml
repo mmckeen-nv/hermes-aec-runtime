@@ -1,0 +1,4 @@
+interface:
+  display_name: "FreeCAD Control"
+  short_description: "Run typed FreeCAD document transactions"
+  default_prompt: "Use $freecad-control to inspect and modify this FreeCAD document."

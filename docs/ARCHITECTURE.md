@@ -11,10 +11,12 @@ The stable boundary is three versioned values: `SceneIndex`, `AECTransaction`, a
 
 The Rhino stack now exposes a revisioned rich scene query, a validated typed-operation batch, and independent transaction verification. Arbitrary Python remains an unregistered internal escape hatch; normal Hermes profiles see only the typed surface.
 
-## Planned adapters
+## Host adapters
 
-- `rhino`: Rhino MCP calls and RhinoCommon scripts
-- `blender`: Blender MCP calls and `bpy` operations
-- `freecad`: FreeCAD MCP calls and document transactions
+- `rhino`: revisioned scene audit and transactional RhinoCommon compiler
+- `blender`: scene audit, typed `bpy` transactions, and handoff validation
+- `freecad`: scene audit and native FreeCAD document transactions for the first deterministic operation set
+
+`aec_run_workflow` composes these adapters behind a single fast path. It never bypasses host transaction, idempotency, proof, memory, or trace boundaries.
 
 Fine-tuning is optional and comes later. The runtime first captures successful transactions and receipts as clean training/evaluation data for a possible **Nemotron AEC Lightning** model.

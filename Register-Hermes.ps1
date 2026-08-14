@@ -27,6 +27,8 @@ foreach ($Name in $Profile) {
     $Config = [regex]::Replace($Config, '(?m)^\s{8}- (run_python|run_csharp)\r?\n?', '')
 
     $ToolLines = @(
+        "        - aec_workflow_plan"
+        "        - aec_run_workflow"
         "        - route_aec_request",
         "        - rhino_scene_query",
         "        - rhino_apply_operations",

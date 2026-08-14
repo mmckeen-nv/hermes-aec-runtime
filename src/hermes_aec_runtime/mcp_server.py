@@ -11,6 +11,8 @@ from .router import route_request
 from .blender import BlenderGateway, default_transport, recovery_plan as blender_recovery_plan, validate_handoff_manifest
 from .memory import FilesystemDMLAdapter, create_outcome
 from .flight_recorder import FlightRecorder, make_trace
+from .freecad import FreeCADGateway, freecad_recovery_plan
+from .orchestrator import BlenderWorkflowGateway, FreeCADWorkflowGateway, RhinoWorkflowGateway, WorkflowOrchestrator, build_plan
 import os
 from pathlib import Path
 
@@ -18,6 +20,11 @@ mcp = FastMCP("Hermes AEC Runtime")
 _blender = BlenderGateway(default_transport)
 _memory = FilesystemDMLAdapter(Path(os.environ.get("HERMES_AEC_MEMORY_ROOT", ".hermes-aec-memory")))
 _recorder = FlightRecorder(Path(os.environ.get("HERMES_AEC_TRACE_PATH", ".hermes-aec-traces/traces.jsonl")))
+_freecad = FreeCADGateway()
+_workflow = WorkflowOrchestrator(
+    {"rhino": RhinoWorkflowGateway(RhinoClient()), "blender": BlenderWorkflowGateway(_blender), "freecad": FreeCADWorkflowGateway(_freecad)},
+    recorder=_recorder, memory=_memory,
+)
 
 
 @mcp.tool()
@@ -37,6 +44,37 @@ def request_context_routing(request: str, scene_index: dict, limit: int = 40) ->
 def route_aec_request(request: str, active_host: str = "rhino") -> dict:
     """Classify an AEC request and return the minimal host, workflow stages, tools, risk, web need, and target terms."""
     return route_request(request, active_host=active_host).to_dict()
+
+
+@mcp.tool()
+def aec_workflow_plan(request: str, operations: list[dict] | None = None, active_host: str = "rhino", query_limit: int = 40) -> dict:
+    """Route and validate an entire AEC request before any host call or mutation."""
+    return build_plan(request, operations or (), active_host=active_host, query_limit=query_limit).to_dict()
+
+
+@mcp.tool()
+async def aec_run_workflow(request: str, operations: list[dict] | None = None, active_host: str = "rhino", idempotency_key: str = "", dry_run: bool = False, assertions: dict | None = None, project_id: str = "default", model: dict | None = None, token_usage: dict | None = None) -> dict:
+    """Run focused query, one typed mutation, independent verification, memory promotion, and trace recording as one deterministic workflow."""
+    result = await _workflow.run(request=request, operations=operations or (), active_host=active_host, idempotency_key=idempotency_key, dry_run=dry_run, assertions=assertions, project_id=project_id, model=model, token_usage=token_usage)
+    return result.to_dict()
+
+
+@mcp.tool()
+async def freecad_scene_query() -> dict:
+    """Return a compact index of the active FreeCAD document through FreeCAD MCP."""
+    return await _freecad.scene_query()
+
+
+@mcp.tool()
+async def freecad_apply_operations(intent: str, operations: list[dict], idempotency_key: str, dry_run: bool = False) -> dict:
+    """Validate and apply one typed FreeCAD document transaction."""
+    return await _freecad.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
+
+
+@mcp.tool()
+def freecad_proof_and_recovery(receipt: dict) -> dict:
+    """Return the verify or reconcile plan for a FreeCAD transaction receipt."""
+    return freecad_recovery_plan(receipt)
 
 
 @mcp.tool()

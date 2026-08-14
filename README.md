@@ -1,6 +1,6 @@
 # Hermes AEC Runtime
 
-An independent sidecar that lets Hermes inspect and change Rhino and Blender scenes through a small, typed, transactional tool surface. It is deliberately separate from every demo repository.
+An independent sidecar that lets Hermes inspect and change Rhino, FreeCAD, and Blender scenes through a small, typed, transactional tool surface. It is deliberately separate from every demo repository.
 
 The normal Rhino surface is:
 
@@ -11,17 +11,18 @@ The normal Rhino surface is:
 
 Raw Rhino scripting and foreground computer control are not part of the normal workflow.
 
-The same server also provides deterministic request routing, typed Blender scene/transaction/handoff tools, verified workflow-memory promotion, and a privacy-safe Flight Recorder. The Full Build profile alone retains the bounded Rhino Python escape hatch for operations that are not typed yet.
+The fastest normal path is `aec_run_workflow`: one Hermes tool call performs routing, a focused scene query, one typed host transaction, independent verification, sanitized workflow-memory promotion, and Flight Recorder capture. Direct Rhino, FreeCAD, and Blender tools remain available for inspection and recovery. The Full Build profile alone retains the bounded Rhino Python escape hatch for operations that are not typed yet.
 
 ## Requirements
 
-- Windows 11
+- Windows 11 or Linux
 - Python 3.11 or newer on `PATH`
 - Hermes with MCP support
 - Rhino with its MCP bridge listening on port `10500`
 - For Blender workflows: Blender with its standard MCP add-on running, plus `uvx blender-mcp` available
+- For Linux CAD workflows: FreeCAD with `freecad-mcp` available
 
-The runtime installs on Linux as well. The demo's existing FreeCAD control remains host-specific; Blender control is supplied by this runtime.
+The typed FreeCAD surface currently covers box/cylinder creation, transforms, semantic attributes/groups, visibility/color, and deletion. Specialized construction may still use the demo's reviewed bounded FreeCAD fallback.
 
 ## Windows: install and run
 
@@ -72,7 +73,7 @@ Import `.runtime/hermes-mcp.json` into Hermes, then restart Hermes. Run `./unins
 
 ## Agent workflow
 
-For every material change:
+For every material change, prefer one `aec_run_workflow` call. Its internal lifecycle is:
 
 ```text
 health → focused scene query → one typed operation batch → transaction verification

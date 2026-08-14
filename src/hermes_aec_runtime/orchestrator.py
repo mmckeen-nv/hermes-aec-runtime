@@ -14,6 +14,7 @@ from .blender_operations import compile_blender_transaction
 from .flight_recorder import FlightRecorder, make_trace
 from .memory import DMLAdapter, MemoryOutcome, create_outcome
 from .operations import compile_transaction
+from .freecad_operations import compile_freecad_transaction
 from .router import RequestRoute, route_request
 from .verification import verify_transaction
 
@@ -92,7 +93,9 @@ def build_plan(
     normalized = None
     signature = "read-only"
     if ops:
-        compiled = compile_blender_transaction(ops) if route.host == "blender" else compile_transaction(ops)
+        if route.host == "blender": compiled = compile_blender_transaction(ops)
+        elif route.host == "freecad": compiled = compile_freecad_transaction(list(ops))
+        else: compiled = compile_transaction(ops)
         normalized = compiled.normalized
         signature = compiled.fingerprint
     return WorkflowPlan(route, FocusedQuery(route.target_terms, query_limit), ops, normalized, signature)
@@ -199,6 +202,15 @@ class BlenderWorkflowGateway:
     def __init__(self, gateway: Any) -> None: self.gateway = gateway
     async def query(self, query: dict[str, Any]) -> dict[str, Any]:
         return _focus_scene(await self.gateway.scene_preprocessing(), query)
+    async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool) -> dict[str, Any]:
+        return await self.gateway.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
+
+
+class FreeCADWorkflowGateway:
+    """Adapter over the typed FreeCAD gateway."""
+    def __init__(self, gateway: Any) -> None: self.gateway = gateway
+    async def query(self, query: dict[str, Any]) -> dict[str, Any]:
+        return _focus_scene(await self.gateway.scene_query(), query)
     async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool) -> dict[str, Any]:
         return await self.gateway.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
 

@@ -3,6 +3,7 @@ import pytest
 
 from hermes_aec_runtime.freecad import FreeCADGateway, freecad_recovery_plan
 from hermes_aec_runtime.freecad_operations import FreeCADOperationError, compile_freecad_transaction
+from hermes_aec_runtime.orchestrator import build_plan
 
 
 class FakeTransport:
@@ -44,3 +45,9 @@ def test_lost_response_is_unknown_and_requires_reconciliation():
     receipt=asyncio.run(gateway.execute(intent="wall", operations=[{"op":"create_box","id":"w","length":1,"width":1,"height":1}], idempotency_key="lost"))
     assert receipt["status"] == "unknown"
     assert freecad_recovery_plan(receipt)["action"] == "reconcile"
+
+
+def test_orchestrator_builds_freecad_plan_with_freecad_compiler():
+    plan = build_plan("Build a FreeCAD wall", [{"op":"create_box","id":"wall","length":4,"width":.2,"height":3}], active_host="freecad")
+    assert plan.route.host == "freecad"
+    assert plan.normalized_transaction[0]["op"] == "create_box"

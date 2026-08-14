@@ -1,0 +1,4 @@
+interface:
+  display_name: "AEC Workflow"
+  short_description: "Run an entire verified AEC transaction"
+  default_prompt: "Use $aec-workflow to execute this AEC request with verification."

@@ -76,10 +76,11 @@ def route_request(request: str, *, active_host: str = "rhino") -> RequestRoute:
         tools = (f"{host}_health", "runtime_recovery_plan")
     elif intent is Intent.HANDOFF:
         stages = ("scene_preprocessing", "handoff_validation", "blender_control", "proof_and_recovery")
-        tools = ("rhino_scene_query", "blender_validate_handoff", "blender_apply_operations", "blender_verify_transaction")
+        source_host = active_host.casefold()
+        tools = (f"{source_host}_scene_query", "blender_validate_handoff", "blender_apply_operations", "blender_proof_and_recovery")
     elif intent is Intent.VISUALIZE:
         stages = ("scene_preprocessing", "action_assembly", "blender_control", "proof_and_recovery")
-        tools = ("blender_scene_query", "blender_apply_operations", "blender_verify_transaction")
+        tools = ("blender_scene_query", "blender_apply_operations", "blender_proof_and_recovery")
     elif intent is Intent.RESEARCH:
         stages = ("scene_preprocessing", "aec_research", "request_context_routing")
         tools = (f"{host}_scene_query", "web")
