@@ -7,8 +7,17 @@ from .runtime import assemble_transaction, execute_transaction, preprocess_scene
 from .rhino import RhinoClient
 from .operations import OperationValidationError, compile_transaction
 from .verification import verify_transaction
+from .router import route_request
+from .blender import BlenderGateway, default_transport, recovery_plan as blender_recovery_plan, validate_handoff_manifest
+from .memory import FilesystemDMLAdapter, create_outcome
+from .flight_recorder import FlightRecorder, make_trace
+import os
+from pathlib import Path
 
 mcp = FastMCP("Hermes AEC Runtime")
+_blender = BlenderGateway(default_transport)
+_memory = FilesystemDMLAdapter(Path(os.environ.get("HERMES_AEC_MEMORY_ROOT", ".hermes-aec-memory")))
+_recorder = FlightRecorder(Path(os.environ.get("HERMES_AEC_TRACE_PATH", ".hermes-aec-traces/traces.jsonl")))
 
 
 @mcp.tool()
@@ -22,6 +31,58 @@ def request_context_routing(request: str, scene_index: dict, limit: int = 40) ->
     """Return only scene objects relevant to a natural-language AEC request."""
     scene = preprocess_scene(scene_index)
     return {"request": request, "objects": [obj.__dict__ for obj in route_context(request, scene, limit)]}
+
+
+@mcp.tool()
+def route_aec_request(request: str, active_host: str = "rhino") -> dict:
+    """Classify an AEC request and return the minimal host, workflow stages, tools, risk, web need, and target terms."""
+    return route_request(request, active_host=active_host).to_dict()
+
+
+@mcp.tool()
+async def blender_scene_query() -> dict:
+    """Return a compact, revisioned index of the active Blender scene."""
+    return await _blender.scene_preprocessing()
+
+
+@mcp.tool()
+async def blender_apply_operations(intent: str, operations: list[dict], idempotency_key: str, dry_run: bool = False) -> dict:
+    """Compile and apply one typed Blender transaction through the standard Blender MCP."""
+    return await _blender.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
+
+
+@mcp.tool()
+def blender_validate_handoff(manifest: dict) -> dict:
+    """Validate Rhino-to-Blender object IDs, units, layers, and export path before import."""
+    return validate_handoff_manifest(manifest)
+
+
+@mcp.tool()
+def blender_proof_and_recovery(receipt: dict) -> dict:
+    """Return the deterministic verify/reconcile/rollback plan for a Blender receipt."""
+    return blender_recovery_plan(receipt)
+
+
+@mcp.tool()
+def workflow_memory_promote(project_id: str, host: str, receipt: dict, verification: dict, operation_signature: str, trace: list[dict] | None = None) -> dict:
+    """Score, sanitize, deduplicate, and persist a verified execution outcome for DML ingestion."""
+    outcome = create_outcome(project_id=project_id, host=host, receipt=receipt, verification=verification, trace=trace or (), operation_signature=operation_signature)
+    inserted = _memory.put(outcome)
+    return {**outcome.to_dict(), "inserted": inserted}
+
+
+@mcp.tool()
+def workflow_memory_query(project_id: str, host: str, status: str | None = "promoted") -> dict:
+    """Return sanitized workflow outcomes for the requested project and host."""
+    return {"outcomes": [item.to_dict() for item in _memory.list(project_id, host, status)]}
+
+
+@mcp.tool()
+def flight_recorder_record(request: str, route: dict, scene_subset: dict, transaction: dict, timing: dict, tool_outcomes: list[dict], receipt: dict, verification: dict, recovery: dict | None = None, model: dict | None = None, token_usage: dict | None = None) -> dict:
+    """Append one sanitized execution trace and report whether it qualifies for model training."""
+    trace = make_trace(request=request, route=route, scene_subset=scene_subset, transaction=transaction, timing=timing, tool_outcomes=tool_outcomes, receipt=receipt, verification=verification, recovery=recovery, model=model, token_usage=token_usage)
+    inserted = _recorder.append(trace)
+    return {"trace_id": trace["trace_id"], "inserted": inserted, "training_quality": trace["training_quality"]}
 
 
 @mcp.tool()

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Memory"
+  short_description: "Promote verified AEC execution outcomes"
+  default_prompt: "Use $workflow-memory to promote this verified AEC outcome."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blender Control"
+  short_description: "Run typed Blender visualization transactions"
+  default_prompt: "Use $blender-control to inspect and modify the active Blender scene safely."

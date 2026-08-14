@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Any, Awaitable, Callable, Protocol
 from uuid import NAMESPACE_URL, uuid5
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 from .blender_operations import compile_blender_transaction
 
@@ -17,6 +21,40 @@ class BlenderUnavailable(RuntimeError): pass
 
 class BlenderTransport(Protocol):
     async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True)
+class StdioBlenderTransport:
+    """Connect to the standard Blender MCP without exposing raw code to Hermes."""
+
+    command: str = "uvx"
+    args: tuple[str, ...] = ("blender-mcp",)
+
+    async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        parameters = StdioServerParameters(command=self.command, args=list(self.args))
+        async with stdio_client(parameters) as (reader, writer):
+            async with ClientSession(reader, writer) as session:
+                await session.initialize()
+                result = await session.call_tool(tool, arguments)
+        if result.isError:
+            detail = " ".join(getattr(item, "text", "") for item in result.content)
+            raise BlenderUnavailable(detail or f"Blender MCP tool {tool} failed")
+        if result.structuredContent is not None:
+            return dict(result.structuredContent)
+        texts = [getattr(item, "text", "") for item in result.content]
+        if len(texts) == 1:
+            try:
+                decoded = json.loads(texts[0])
+                return decoded if isinstance(decoded, dict) else {"result": decoded}
+            except json.JSONDecodeError:
+                pass
+        return {"content": texts}
+
+
+def default_transport() -> StdioBlenderTransport:
+    command = os.environ.get("HERMES_AEC_BLENDER_COMMAND", "uvx")
+    args = tuple(filter(None, os.environ.get("HERMES_AEC_BLENDER_ARGS", "blender-mcp").split()))
+    return StdioBlenderTransport(command=command, args=args)
 
 
 @dataclass

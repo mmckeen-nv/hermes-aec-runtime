@@ -5,7 +5,7 @@ description: Route an AEC request using the smallest useful subset returned by r
 
 # Request Context Routing
 
-Route the exact request:
+Call `route_aec_request` with the exact request and active host, then follow its minimal stage/tool route:
 
 - Read-only inspection: return findings without creating a transaction.
 - City code or product research: research first, then attach source-derived constraints.

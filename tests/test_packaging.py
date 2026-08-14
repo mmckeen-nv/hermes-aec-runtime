@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 TOOLS = {
+    "route_aec_request",
     "rhino_health",
     "rhino_scene_query",
     "rhino_apply_operations",

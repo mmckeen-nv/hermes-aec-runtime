@@ -1,8 +1,8 @@
 # Hermes AEC Runtime
 
-An independent sidecar that lets Hermes inspect and change Rhino models through a small, typed, transactional tool surface. It is deliberately separate from every demo repository.
+An independent sidecar that lets Hermes inspect and change Rhino and Blender scenes through a small, typed, transactional tool surface. It is deliberately separate from every demo repository.
 
-Hermes gets four Rhino tools:
+The normal Rhino surface is:
 
 - `rhino_health` — confirm the host is ready.
 - `rhino_scene_query` — find objects and obtain stable IDs, units, and document revision.
@@ -11,14 +11,17 @@ Hermes gets four Rhino tools:
 
 Raw Rhino scripting and foreground computer control are not part of the normal workflow.
 
+The same server also provides deterministic request routing, typed Blender scene/transaction/handoff tools, verified workflow-memory promotion, and a privacy-safe Flight Recorder. The Full Build profile alone retains the bounded Rhino Python escape hatch for operations that are not typed yet.
+
 ## Requirements
 
 - Windows 11
 - Python 3.11 or newer on `PATH`
 - Hermes with MCP support
 - Rhino with its MCP bridge listening on port `10500`
+- For Blender workflows: Blender with its standard MCP add-on running, plus `uvx blender-mcp` available
 
-The runtime itself also installs on Linux, ready for future FreeCAD/Blender adapters.
+The runtime installs on Linux as well. The demo's existing FreeCAD control remains host-specific; Blender control is supplied by this runtime.
 
 ## Windows: install and run
 
@@ -84,3 +87,5 @@ Use the bundled skills under `skills/` to keep this sequence concise. A lost mut
 ```
 
 See [architecture](docs/ARCHITECTURE.md), [demo integration](docs/DEMO_INTEGRATION.md), and [stack acceptance](docs/STACK_ACCEPTANCE.md). Demo repositories should pin a released sidecar version and call its installer; they should not copy runtime source.
+
+Model fine-tuning is gated, not assumed. Run `python tools/evaluate_model.py --mock --output .runtime/nemotron-readiness.json` to validate the evaluation harness. A real **Nemotron AEC Lightning** fine-tune remains NO-GO until at least 200 clean, independently verified Flight Recorder examples exist and the held-out model evaluation passes.

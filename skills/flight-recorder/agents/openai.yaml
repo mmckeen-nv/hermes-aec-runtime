@@ -1,0 +1,4 @@
+interface:
+  display_name: "Flight Recorder"
+  short_description: "Capture training-quality AEC traces"
+  default_prompt: "Use $flight-recorder to record this verified AEC transaction."
