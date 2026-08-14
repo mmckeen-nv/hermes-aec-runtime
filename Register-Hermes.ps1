@@ -6,10 +6,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Server = Join-Path $PSScriptRoot ".venv\Scripts\hermes-aec-mcp.exe"
-if (-not (Test-Path -LiteralPath $Server)) {
-    throw "Sidecar is not installed. Run Install.ps1 first."
-}
+if (-not (Test-Path -LiteralPath $Server)) { throw "Run Install.ps1 first." }
 $ServerYaml = $Server.Replace("\", "/")
+$Begin = "  # BEGIN HERMES AEC SIDECAR (managed)"
+$End = "  # END HERMES AEC SIDECAR (managed)"
 
 foreach ($Name in $Profile) {
     $ConfigPath = Join-Path $env:LOCALAPPDATA "hermes\profiles\$Name\config.yaml"
@@ -19,33 +19,33 @@ foreach ($Name in $Profile) {
     }
 
     $Config = Get-Content -Raw -LiteralPath $ConfigPath
-    $Config = [regex]::Replace(
-        $Config,
-        '(?ms)^  hermes_aec:\r?\n(?:(?!^  [A-Za-z0-9_-]+:).)*(?=^  [A-Za-z0-9_-]+:|\z)',
-        ''
-    )
-    # Hide raw scripting primitives from Hermes. The sidecar still reaches
-    # them internally and wraps mutations in receipts and rollback handling.
-    $Config = [regex]::Replace($Config, '(?m)^\s{8}- run_python\r?\n?', '')
-    $Config = [regex]::Replace($Config, '(?m)^\s{8}- run_csharp\r?\n?', '')
+    $Backup = "$ConfigPath.hermes-aec-backup"
+    if (-not (Test-Path -LiteralPath $Backup)) { Copy-Item -LiteralPath $ConfigPath -Destination $Backup }
+    $Config = [regex]::Replace($Config, '(?ms)^  # BEGIN HERMES AEC SIDECAR \(managed\)\r?\n.*?^  # END HERMES AEC SIDECAR \(managed\)\r?\n?', '')
+    # Remove pre-v1 unmarked registration and hide the direct Rhino script escape hatches.
+    $Config = [regex]::Replace($Config, '(?ms)^  hermes_aec:\r?\n(?:(?!^  [A-Za-z0-9_-]+:).)*(?=^  [A-Za-z0-9_-]+:|\z)', '')
+    $Config = [regex]::Replace($Config, '(?m)^\s{8}- (run_python|run_csharp)\r?\n?', '')
 
     $Block = @"
+$Begin
   hermes_aec:
     command: $ServerYaml
     args: []
     env:
+      HERMES_AEC_CONFIG_VERSION: "1"
       HERMES_AEC_RHINO_URL: http://127.0.0.1:$RhinoPort/
     connect_timeout: 30
     timeout: 320
     enabled: true
     tools:
       include:
-        - rhino_scene_preprocessing
-        - rhino_execute_python
-        - rhino_verify
+        - rhino_scene_query
+        - rhino_apply_operations
+        - rhino_verify_transaction
         - rhino_health
+$End
 "@
     $Config = $Config.TrimEnd() + "`r`n" + $Block.TrimEnd() + "`r`n"
     Set-Content -LiteralPath $ConfigPath -Value $Config -Encoding utf8
-    Write-Host "HERMES_AEC_REGISTERED profile=$Name rhino_port=$RhinoPort"
+    Write-Host "HERMES_AEC_REGISTERED profile=$Name config_version=1 rhino_port=$RhinoPort"
 }

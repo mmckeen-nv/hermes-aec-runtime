@@ -1,20 +1,18 @@
 ---
 name: proof-and-recovery
-description: Execute or validate an AECTransaction, inspect its ExecutionReceipt, verify the intended model delta, and recover safely from adapter failures. Use for every mutation and whenever a host call stalls, fails, or produces uncertain geometry.
+description: Verify a typed Rhino transaction through rhino_verify_transaction and recover without duplicating geometry. Use after every rhino_apply_operations call and whenever a Rhino operation stalls, fails, or has an uncertain outcome.
 ---
 
 # Proof and Recovery
 
-Call `proof_and_recovery` exactly once for the compiled transaction and inspect the receipt.
+Call `rhino_verify_transaction` with the returned transaction ID and explicit assertions. Never claim success from tool acceptance or a completed status alone.
 
-For Rhino mutations, provide a unique stable `idempotency_key`. If the status is `unknown`, retry
-only with that same key so the persisted document receipt can be recovered without duplicating work.
-If a failed receipt confirms `rolled_back=true`, correct the script and use a new unique key. Never
-change a payload while retaining its old key.
+If status is `unknown`, retry the identical `rhino_apply_operations` payload with the same idempotency key. If `rolled_back=true`, correct the operation batch and use a new key. Never change a payload while retaining its key.
 
-- `validated`: dry run succeeded; request approval or execute when already authorized.
-- `completed`: verify changed object IDs, counts, dimensions, and host evidence.
-- `blocked`: stop and report the missing adapter or prerequisite.
-- `failed`: preserve the receipt, refresh SceneIndex, and retry only with a specifically corrected transaction.
+- `completed` and assertions pass: report the verified model delta.
+- `unknown`: reconcile with the same key; do not submit new geometry.
+- `stale`: refresh with `rhino_scene_query`, then re-plan.
+- `failed` with rollback: preserve evidence and submit only a corrected batch.
+- failed verification: stop or correct the specific discrepancy.
 
-Never claim success from tool-call acceptance alone. Never recover by switching to foreground computer input. Do not repeat an identical failed transaction.
+Never recover through foreground computer input.

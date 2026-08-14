@@ -1,16 +1,13 @@
 ---
 name: scene-pre-processing
-description: Build or refresh a compact SceneIndex before reasoning about an unfamiliar Rhino, Blender, or FreeCAD document. Use when a model is opened, changed outside Hermes, units or object identity are uncertain, or a request refers to visible geometry without stable IDs.
+description: Query a Rhino document through the Hermes AEC sidecar and select stable object IDs before inspection or modification. Use when a model opens, changes externally, has uncertain units, or a request refers to geometry without exact IDs.
 ---
 
 # Scene Pre-Processing
 
-Call `scene_preprocessing` once for the active document snapshot. Treat its returned object IDs, units, layers, types, and bounds as authoritative for the turn.
+1. Call `rhino_health`. Stop if the sidecar or Rhino bridge is unavailable.
+2. Call `rhino_scene_query` with focused filters; use an unfiltered query only for initial orientation.
+3. Treat returned revision, units, IDs, layers, types, and bounds as authoritative.
+4. Pass only relevant objects and the revision to `$request-context-routing`.
 
-1. Reuse a current index when the document revision is unchanged.
-2. Refresh after any external edit or ambiguous target error.
-3. Report a unit mismatch before compiling dimensions.
-4. Pass the index to `$request-context-routing`; do not dump the full document into subsequent prompts.
-
-Never mutate geometry during this stage and never use foreground UI input to discover the scene.
-
+Refresh after an external edit, stale-revision response, or ambiguous target. Never use foreground UI input for discovery.

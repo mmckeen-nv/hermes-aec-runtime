@@ -1,55 +1,86 @@
 # Hermes AEC Runtime
 
-An independent sidecar that gives Hermes a fast, predictable way to operate AEC applications. It keeps model reasoning separate from host execution:
+An independent sidecar that lets Hermes inspect and change Rhino models through a small, typed, transactional tool surface. It is deliberately separate from every demo repository.
 
-1. **Scene Pre-Processing** turns the active document into a compact scene index.
-2. **Request Context Routing** selects only the relevant objects and rules.
-3. **Action Assembly** compiles an approved intent into deterministic host actions.
-4. **Proof and Recovery** executes, verifies, records a receipt, and stops safely on failure.
+Hermes gets four Rhino tools:
 
-The sidecar does not contain the Cliff House demo and the demo does not contain this runtime. Their future integration is a small configuration layer.
+- `rhino_health` — confirm the host is ready.
+- `rhino_scene_query` — find objects and obtain stable IDs, units, and document revision.
+- `rhino_apply_operations` — apply one idempotent batch of typed geometry operations.
+- `rhino_verify_transaction` — verify the resulting model delta and assertions.
+
+Raw Rhino scripting and foreground computer control are not part of the normal workflow.
 
 ## Requirements
 
-- Windows 11 or Linux
-- Python 3.11 or newer
+- Windows 11
+- Python 3.11 or newer on `PATH`
 - Hermes with MCP support
-- An AEC host adapter (the included `mock` adapter works without Rhino, Blender, or FreeCAD)
+- Rhino with its MCP bridge listening on port `10500`
 
-## Install and run
+The runtime itself also installs on Linux, ready for future FreeCAD/Blender adapters.
 
-Windows PowerShell:
+## Windows: install and run
+
+Open PowerShell in this folder and run:
 
 ```powershell
 .\Install.ps1
-.\Register-Hermes.ps1
-.\Start.ps1
 ```
 
-Use `Test-Sidecar.ps1` for the isolated mock workflow. Use `Run-Hermes-Rhino-Test.ps1` for a manually timed end-to-end Cliff House test through the deployed Hermes UI and Rhino MCP.
+That command creates an isolated `.venv`, installs the sidecar, writes versioned MCP configuration, registers both Cliff House Hermes profiles when present, and runs diagnostics. Restart Hermes after installation.
 
-Linux/macOS:
+To check the installation at any time:
+
+```powershell
+.\Doctor.ps1
+```
+
+If Rhino is intentionally closed:
+
+```powershell
+.\Doctor.ps1 -AllowRhinoOffline
+```
+
+To register a different profile or port:
+
+```powershell
+.\Register-Hermes.ps1 -Profile "my-profile" -RhinoPort 10500
+```
+
+Registration is idempotent and leaves a one-time `config.yaml.hermes-aec-backup` beside each changed Hermes profile. Generated configuration and the install manifest live in `.runtime/` and use `schema_version: 1`.
+
+To remove registration and generated installation files:
+
+```powershell
+.\Uninstall.ps1
+```
+
+Use `-KeepEnvironment` to unregister Hermes but retain `.venv` and `.runtime`.
+
+## Linux: install
 
 ```bash
 ./install.sh
-./start.sh
+./doctor.sh --allow-rhino-offline
 ```
 
-The registration script adds the sidecar to both deployed Windows AEC profiles and hides raw Rhino scripting tools from Hermes. Restart Hermes after registration. The MCP server uses stdio; `.runtime/hermes-mcp.json` is also generated for manual registration. Smoke-test without Hermes:
+Import `.runtime/hermes-mcp.json` into Hermes, then restart Hermes. Run `./uninstall.sh` to remove generated files.
+
+## Agent workflow
+
+For every material change:
+
+```text
+health → focused scene query → one typed operation batch → transaction verification
+```
+
+Use the bundled skills under `skills/` to keep this sequence concise. A lost mutation response must be reconciled with the same idempotency key; it must not be resubmitted as new work.
+
+## Development
 
 ```powershell
-.\.venv\Scripts\hermes-aec.exe doctor
-.\.venv\Scripts\hermes-aec.exe demo
+.\.venv\Scripts\python.exe -m pytest
 ```
 
-## Safety contract
-
-- Every mutation is represented by an `AECTransaction` before execution.
-- Every execution returns an `ExecutionReceipt` with evidence and timing.
-- Rhino calls are serialized; safe reads reconnect automatically.
-- Mutations use stable idempotency keys and document-persisted receipts, so a lost response cannot silently duplicate geometry.
-- `dry_run` defaults to true.
-- The sidecar never falls back to foreground UI automation.
-- Host-specific behavior lives behind adapters; model prompts do not contain raw UI choreography.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEMO_INTEGRATION.md](docs/DEMO_INTEGRATION.md).
+See [architecture](docs/ARCHITECTURE.md), [demo integration](docs/DEMO_INTEGRATION.md), and [stack acceptance](docs/STACK_ACCEPTANCE.md). Demo repositories should pin a released sidecar version and call its installer; they should not copy runtime source.

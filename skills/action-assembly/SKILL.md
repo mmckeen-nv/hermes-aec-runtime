@@ -1,17 +1,17 @@
 ---
 name: action-assembly
-description: Compile a concrete AEC modification into a short, typed, reviewable AECTransaction for Rhino, Blender, FreeCAD, or a mock host. Use after targets and constraints are known and before any model mutation.
+description: Compile a concrete Rhino modification into one short batch of registered typed operations for rhino_apply_operations. Use after target IDs, document revision, dimensions, and constraints are known.
 ---
 
 # Action Assembly
 
-Call `action_assembly` with one semantic adapter operation, stable target IDs, explicit parameters, host, and the original user request.
+Call `rhino_apply_operations` once with the document revision, a stable idempotency key, and the smallest ordered batch of registered operations.
 
-1. Default to `dry_run=true` for a new operation or adapter.
-2. Use model units from SceneIndex; never infer them from apparent dimensions.
-3. Prefer one batch operation over repeated primitive calls.
-4. Reject invented operation names; consult the selected adapter's operation catalog.
-5. Hand the compiled transaction to `$proof-and-recovery`.
+1. Use units from `rhino_scene_query`; never infer units from apparent scale.
+2. Use exact stable IDs for existing targets.
+3. Prefer one batch over repeated calls.
+4. Use only operations listed by the tool schema; never invent one.
+5. Reuse an idempotency key only for an identical payload.
+6. Hand the returned transaction receipt to `$proof-and-recovery`.
 
-Do not produce raw clicks, keystrokes, or long command-line choreography.
-
+Do not generate RhinoCommon scripts, clicks, keystrokes, or command-line choreography.

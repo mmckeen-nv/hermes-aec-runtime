@@ -1,18 +1,15 @@
 ---
 name: request-context-routing
-description: Select the smallest relevant subset of an indexed AEC scene and choose the next workflow stage. Use after Scene Pre-Processing for requests to inspect, research, modify, create, verify, export, or repair model content.
+description: Route an AEC request using the smallest useful subset returned by rhino_scene_query. Use after Scene Pre-Processing for requests to inspect, research, create, modify, verify, export, or repair Rhino content.
 ---
 
 # Request Context Routing
 
-Call `request_context_routing` with the exact user request and current SceneIndex.
-
-Route the result:
+Route the exact request:
 
 - Read-only inspection: return findings without creating a transaction.
 - City code or product research: research first, then attach source-derived constraints.
-- Geometry or metadata change: invoke `$action-assembly` with stable object IDs.
+- Geometry or metadata change: invoke `$action-assembly` with stable IDs and document revision.
 - Verification or previous failure: invoke `$proof-and-recovery`.
 
-Ask for clarification only if multiple routed targets would materially change the outcome. Do not load unrelated project memory or enumerate every scene object.
-
+Ask only when ambiguous targets would materially change the outcome. Refine with `rhino_scene_query`; do not enumerate the entire document repeatedly.
