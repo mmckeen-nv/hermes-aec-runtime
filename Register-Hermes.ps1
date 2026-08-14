@@ -26,6 +26,16 @@ foreach ($Name in $Profile) {
     $Config = [regex]::Replace($Config, '(?ms)^  hermes_aec:\r?\n(?:(?!^  [A-Za-z0-9_-]+:).)*(?=^  [A-Za-z0-9_-]+:|\z)', '')
     $Config = [regex]::Replace($Config, '(?m)^\s{8}- (run_python|run_csharp)\r?\n?', '')
 
+    $ToolLines = @(
+        "        - rhino_scene_query",
+        "        - rhino_apply_operations",
+        "        - rhino_verify_transaction",
+        "        - rhino_health"
+    )
+    if ($Name -eq "cliff-house-full-build-windows") {
+        $ToolLines += "        - rhino_execute_python"
+    }
+    $ToolBlock = $ToolLines -join "`r`n"
     $Block = @"
 $Begin
   hermes_aec:
@@ -39,10 +49,7 @@ $Begin
     enabled: true
     tools:
       include:
-        - rhino_scene_query
-        - rhino_apply_operations
-        - rhino_verify_transaction
-        - rhino_health
+$ToolBlock
 $End
 "@
     $Config = $Config.TrimEnd() + "`r`n" + $Block.TrimEnd() + "`r`n"

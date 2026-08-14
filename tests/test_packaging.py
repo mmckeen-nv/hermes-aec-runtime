@@ -10,12 +10,13 @@ TOOLS = {
 }
 
 
-def test_registration_exposes_only_typed_rhino_surface():
+def test_registration_exposes_typed_surface_and_scoped_full_build_escape():
     registration = (ROOT / "Register-Hermes.ps1").read_text(encoding="utf-8")
     for tool in TOOLS:
         assert f"- {tool}" in registration
     include = registration.split("tools:", 1)[1]
-    assert "- rhino_execute_python" not in include
+    assert 'if ($Name -eq "cliff-house-full-build-windows")' in registration
+    assert registration.count("rhino_execute_python") == 1
     assert "- run_python" not in include
     assert "- run_csharp" not in include
 

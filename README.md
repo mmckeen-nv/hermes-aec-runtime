@@ -48,7 +48,7 @@ To register a different profile or port:
 .\Register-Hermes.ps1 -Profile "my-profile" -RhinoPort 10500
 ```
 
-Registration is idempotent and leaves a one-time `config.yaml.hermes-aec-backup` beside each changed Hermes profile. Generated configuration and the install manifest live in `.runtime/` and use `schema_version: 1`.
+Registration is idempotent and leaves a one-time `config.yaml.hermes-aec-backup` beside each changed Hermes profile. The modification profile is typed-only. The Full Build profile also receives the transactional Python escape hatch needed for specialized annotations not yet represented by typed operations. Generated configuration and the install manifest live in `.runtime/` and use `schema_version: 1`.
 
 To remove registration and generated installation files:
 
