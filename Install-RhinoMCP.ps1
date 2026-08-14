@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.4.0-aec.1",
+    [string]$Version = "0.4.0-aec.2",
     [switch]$SkipInstall
 )
 
