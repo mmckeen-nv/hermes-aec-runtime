@@ -12,7 +12,7 @@ import os
 import socket
 from dataclasses import dataclass, field
 from hashlib import sha256
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Awaitable, Callable, Mapping
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -134,6 +134,9 @@ class RhinoMCPGateway:
         self._lock = asyncio.Lock()
         self._receipts: dict[str, dict[str, Any]] = {}
         self._inflight: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._scene_cache: dict[str, Any] | None = None
+        self._scene_cache_at = 0.0
+        self._scene_cache_capacity = 0
 
     async def health(self) -> dict[str, Any]:
         started = perf_counter()
@@ -149,10 +152,13 @@ class RhinoMCPGateway:
             return {"status": "unavailable", "endpoint": self.transport.endpoint,
                     "error": str(exc), "latency_ms": round((perf_counter() - started) * 1000, 3)}
 
-    async def scene_index(self, *, page_size: int = 500, max_objects: int = 10000) -> dict[str, Any]:
+    async def scene_index(self, *, page_size: int = 500, max_objects: int = 10000, cache_seconds: float = 2.0) -> dict[str, Any]:
         if page_size < 1 or page_size > 2000 or max_objects < 1:
             raise ValueError("page_size must be 1..2000 and max_objects must be positive")
         async with self._lock:
+            if (self._scene_cache is not None and self._scene_cache_capacity >= max_objects
+                    and monotonic() - self._scene_cache_at <= max(0.0, cache_seconds)):
+                return {**self._scene_cache, "cache_hit": True}
             summary = await self.transport.call("get_document_summary", {})
             objects: list[dict[str, Any]] = []
             offset = 0
@@ -166,13 +172,26 @@ class RhinoMCPGateway:
                 objects.extend(item for item in batch if isinstance(item, dict))
                 offset += len(batch)
                 total = page.get("total_matching", page.get("total_count"))
-                if not batch or len(batch) < limit or (isinstance(total, int) and offset >= total):
+                if not batch:
+                    break
+                # RhinoMCP currently caps a response at 200 objects even when
+                # the requested limit is larger.  A short page is therefore
+                # not an end-of-results signal when the server supplies a
+                # matching total; continue until that total is reached.
+                if isinstance(total, int):
+                    if offset >= total:
+                        break
+                elif len(batch) < limit:
                     break
                 if len(objects) >= max_objects:
                     truncated = True
             scene = scene_from_rhinomcp(summary, objects)
             scene["truncated"] = truncated
             scene["page_size"] = page_size
+            scene["cache_hit"] = False
+            self._scene_cache = scene
+            self._scene_cache_at = monotonic()
+            self._scene_cache_capacity = max_objects
             return scene
 
     async def execute_operations(self, *, intent: str, operations: list[Mapping[str, Any]], dry_run: bool = True,
@@ -229,6 +248,8 @@ class RhinoMCPGateway:
                     "evidence": ["typed operations valid", "all commands supported by RhinoMCP"]}
 
         async with self._lock:
+            self._scene_cache = None
+            self._scene_cache_capacity = 0
             capabilities = await self.transport.call("describe_capabilities", {})
             protocol = capabilities.get("protocol_version")
             advertised = capabilities.get("commands", [])
@@ -315,6 +336,18 @@ class RhinoMCPGateway:
                        "created_ids": created, "modified_ids": modified, "deleted_ids": deleted, "outputs": aliases,
                        "before_revision": before.get("document_revision"), "after_revision": after.get("document_revision"),
                        "verified": verified, "results": results}
+            receipt["verification"] = {
+                "status": "verified" if verified and status in {"completed", "reconciled"} else "failed",
+                "independent_scene_delta": True,
+                "before_revision": before.get("document_revision"),
+                "after_revision": after.get("document_revision"),
+                "created_ids": created,
+                "modified_ids": modified,
+                "deleted_ids": deleted,
+            }
+            self._scene_cache = after
+            self._scene_cache_at = monotonic()
+            self._scene_cache_capacity = len(after.get("objects", []))
             if failed:
                 receipt["error"] = str(failed)
                 receipt["recovery"] = "The batch may be partial. Inspect the observed GUID deltas and use Rhino Undo before retrying with a new key."

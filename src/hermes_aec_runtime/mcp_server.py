@@ -16,6 +16,8 @@ from .orchestrator import BlenderWorkflowGateway, FreeCADWorkflowGateway, RhinoW
 from .observability import ExecutionBudget, readiness, storage_ready
 from .rhinomcp_transport import RhinoMCPGateway
 from .operation_models import RhinoOperationInput, dump_operations
+from .scene_query_models import RhinoSceneQuery, normalize_scene_query
+from collections import Counter
 import os
 from pathlib import Path
 
@@ -224,16 +226,41 @@ async def rhino_health() -> dict:
 
 
 @mcp.tool()
-async def rhino_scene_query(query: dict | None = None, audit_limit: int = 2000) -> dict:
-    """Run one rich, revisioned Rhino audit and return only objects matching focused name, layer, kind, ID, relationship, proximity, containment, or intersection selectors."""
+async def rhino_scene_query(query: RhinoSceneQuery | None = None, audit_limit: int = 2000) -> dict:
+    """Read Rhino through a bounded typed selector. Start with mode=summary. Object mode returns at most 100 compact records; geometry is omitted unless explicitly requested."""
+    selector = normalize_scene_query(query)
     scene = await _rhino_direct.scene_index(max_objects=audit_limit)
-    if not query:
-        return scene
     objects = scene.get("objects", [])
-    ids = {str(value) for value in query.get("ids", [])} if query.get("ids") else None
-    name = str(query.get("name", "")).casefold()
-    layer = str(query.get("layer", "")).casefold()
-    kind = str(query.get("kind", query.get("geometry_type", ""))).casefold()
+    raw_document = scene.get("document") or {}
+    raw_summary = raw_document.get("summary") or {}
+    document = {key: raw_document.get(key) for key in (
+        "name", "path", "units", "tolerance", "angle_tolerance", "date_modified"
+    ) if raw_document.get(key) is not None}
+    layer_counts = Counter(str(item.get("layer") or "") for item in objects)
+    type_counts = Counter(str(item.get("type", item.get("kind", "UNKNOWN"))) for item in objects)
+    base = {
+        "schema_version": scene.get("schema_version"),
+        "host": "rhino",
+        "document_id": scene.get("document_id"),
+        "document_revision": scene.get("document_revision"),
+        "document": document,
+        "bounds": raw_summary.get("model_bounding_box"),
+        "total_objects": raw_summary.get("object_count", len(objects)),
+        "indexed_objects": len(objects),
+        "truncated": bool(scene.get("truncated")),
+        "cache_hit": bool(scene.get("cache_hit")),
+    }
+    if selector.mode == "summary":
+        return {**base, "mode": "summary", "layer_counts": dict(layer_counts.most_common()),
+                "type_counts": dict(type_counts.most_common())}
+    if selector.mode == "layers":
+        return {**base, "mode": "layers", "layers": [
+            {"name": name, "object_count": count} for name, count in layer_counts.most_common()
+        ]}
+    ids = set(selector.ids) if selector.ids else None
+    name = (selector.name or "").casefold()
+    layer = (selector.layer or "").casefold()
+    kind = (selector.kind or "").casefold()
     selected = []
     for item in objects:
         if ids is not None and str(item.get("id")) not in ids:
@@ -244,10 +271,17 @@ async def rhino_scene_query(query: dict | None = None, audit_limit: int = 2000) 
             continue
         if kind and kind != str(item.get("type", item.get("kind", ""))).casefold():
             continue
-        selected.append(item)
-        if len(selected) >= int(query.get("limit", 100)):
+        compact = {key: item.get(key) for key in (
+            "id", "name", "type", "layer", "bounding_box", "color", "material", "content_hash"
+        )}
+        if selector.include_geometry:
+            compact["geometry"] = item.get("geometry")
+            compact["attributes"] = item.get("attributes")
+        selected.append(compact)
+        if len(selected) >= selector.limit:
             break
-    return {**scene, "objects": selected, "count": len(selected), "query": query}
+    return {**base, "mode": "objects", "objects": selected, "count": len(selected),
+            "selector": selector.model_dump(exclude_none=True)}
 
 
 @mcp.tool()
