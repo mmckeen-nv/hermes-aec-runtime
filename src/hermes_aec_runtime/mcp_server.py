@@ -5,6 +5,8 @@ from mcp.server.fastmcp import FastMCP
 from .contracts import AECTransaction, AECAction
 from .runtime import assemble_transaction, execute_transaction, preprocess_scene, route_context
 from .rhino import RhinoClient
+from .operations import OperationValidationError, compile_transaction
+from .verification import verify_transaction
 
 mcp = FastMCP("Hermes AEC Runtime")
 
@@ -94,6 +96,66 @@ async def rhino_verify(
 async def rhino_health() -> dict:
     """Check the Rhino MCP bridge and report latency, connection, retry, and failure counters."""
     return await RhinoClient().health()
+
+
+@mcp.tool()
+async def rhino_scene_query(query: dict | None = None, audit_limit: int = 2000) -> dict:
+    """Run one rich, revisioned Rhino audit and return only objects matching focused name, layer, kind, ID, relationship, proximity, containment, or intersection selectors."""
+    return await RhinoClient().scene_query(query=query, audit_limit=audit_limit)
+
+
+@mcp.tool()
+async def rhino_apply_operations(
+    intent: str,
+    operations: list[dict],
+    idempotency_key: str,
+    document_revision: str,
+    dry_run: bool = False,
+    checkpoint_path: str | None = None,
+) -> dict:
+    """Validate and execute one typed Rhino operation batch. Supports primitives, in-place transforms, duplicate/delete, attributes, extrusion, offset, and booleans without model-generated RhinoCommon."""
+    try:
+        compiled = compile_transaction(operations)
+    except OperationValidationError as exc:
+        return {"schema_version": "1.0", "status": "blocked", "error": str(exc)}
+    current_revision = await RhinoClient().document_revision()
+    if current_revision != document_revision:
+        return {
+            "schema_version": "1.0", "status": "blocked",
+            "error": "document revision changed after scene query",
+            "expected_document_revision": document_revision,
+            "current_document_revision": current_revision,
+            "recovery": "Run rhino_scene_query again and rebuild target IDs before executing.",
+        }
+    receipt = await RhinoClient().execute_python(
+        intent=intent,
+        script=compiled.script,
+        expected_change=compiled.expected_change,
+        dry_run=dry_run,
+        idempotency_key=idempotency_key,
+    )
+    if receipt.get("status") == "completed" and checkpoint_path and not dry_run:
+        try:
+            checkpoint = await RhinoClient().save_checkpoint(checkpoint_path)
+            receipt["checkpoint"] = {"path": checkpoint_path, "status": "saved", "host_result": checkpoint}
+        except Exception as exc:
+            receipt["checkpoint"] = {"path": checkpoint_path, "status": "unknown", "error": str(exc)}
+    return {
+        **receipt,
+        "semantic_fingerprint": compiled.fingerprint,
+        "normalized_transaction": compiled.normalized,
+    }
+
+
+@mcp.tool()
+def rhino_verify_transaction(
+    receipt: dict,
+    before_scene: dict,
+    after_scene: dict,
+    assertions: dict | None = None,
+) -> dict:
+    """Compare a transaction receipt with independent before/after scene snapshots and explicit invariants."""
+    return verify_transaction(receipt, before_scene, after_scene, assertions).to_dict()
 
 
 def main() -> None:

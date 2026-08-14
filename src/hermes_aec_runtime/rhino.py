@@ -13,6 +13,8 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from .scene_index import build_rhino_audit_script, parse_rhino_audit_output
+
 
 class RhinoUnavailable(RuntimeError):
     """The Rhino bridge could not complete a request."""
@@ -139,6 +141,46 @@ print(json.dumps({"document_id": str(doc.RuntimeSerialNumber), "name": doc.Name,
             "objects": payload.get("objects", []),
             "elapsed_ms": round((perf_counter() - started) * 1000, 3),
         }
+
+    async def scene_query(self, *, query: dict[str, Any] | None = None, audit_limit: int = 2000) -> dict[str, Any]:
+        """Run one rich bounded audit, then apply focused selectors locally."""
+        started = perf_counter()
+        script = build_rhino_audit_script(limit=audit_limit)
+
+        async def read(session: ClientSession):
+            payload = await self._call(session, "run_python", {"script": script})
+            diagnostic = "\n".join(
+                part for part in (payload.get("stdout", ""), payload.get("error") or "") if part
+            )
+            return parse_rhino_audit_output(diagnostic)
+
+        index = await self._read_sequence(read)
+        selected = index.query(**(query or {}))
+        payload = dict(index.payload)
+        selected_ids = {item["id"] for item in selected}
+        payload["objects"] = selected
+        payload["relationships"] = [
+            edge for edge in payload["relationships"]
+            if edge.get("source") in selected_ids or edge.get("target") in selected_ids
+        ]
+        payload["query"] = query or {}
+        payload["query_count"] = len(selected)
+        payload["indexed_count"] = index.payload.get("count", len(index.payload["objects"]))
+        payload["elapsed_ms"] = round((perf_counter() - started) * 1000, 3)
+        return payload
+
+    async def document_revision(self) -> str:
+        """Return the exact content-derived revision used by the rich audit."""
+        scene = await self.scene_query(query={"limit": 1}, audit_limit=2000)
+        return str(scene["document_revision"])
+
+    async def save_checkpoint(self, path: str) -> dict[str, Any]:
+        """Save the active working document after a completed transaction."""
+        if not path.lower().endswith(".3dm"):
+            raise ValueError("checkpoint path must end with .3dm")
+        async with _lock():
+            async with self.session() as session:
+                return await self._call(session, "save_doc", {"path": path})
 
     async def _recover_receipt(self, transaction_id: str) -> dict[str, Any] | None:
         key = f"HermesAEC.{transaction_id}"
@@ -281,6 +323,18 @@ print("HERMES_AEC_RECEIPT=" + serialized)
                     "intent": intent, "expected_change": expected_change, "fingerprint": fingerprint,
                     "error": "Rhino returned no receipt; reconcile with the same idempotency_key.",
                 }
+            for output_line in diagnostic.splitlines():
+                if output_line.startswith(marker):
+                    continue
+                try:
+                    operation_result = json.loads(output_line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(operation_result, dict) and {
+                    "created", "modified", "deleted"
+                }.issubset(operation_result):
+                    receipt["operation_result"] = operation_result
+                    break
 
         if receipt["status"] == "failed":
             async with _lock():

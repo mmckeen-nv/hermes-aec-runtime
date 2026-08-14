@@ -5,7 +5,7 @@ description: Compile a concrete Rhino modification into one short batch of regis
 
 # Action Assembly
 
-Call `rhino_apply_operations` once with the document revision, a stable idempotency key, and the smallest ordered batch of registered operations.
+Call `rhino_apply_operations` once with the document revision, a stable idempotency key, the active working-document path as `checkpoint_path`, and the smallest ordered batch of registered operations.
 
 1. Use units from `rhino_scene_query`; never infer units from apparent scale.
 2. Use exact stable IDs for existing targets.

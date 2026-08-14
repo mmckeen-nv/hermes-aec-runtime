@@ -15,7 +15,8 @@ def test_compiles_batch_with_aliases_and_deterministic_fingerprint():
     second = compile_transaction(operations)
     assert first.fingerprint == second.fingerprint
     assert first.normalized["operations"][1]["id"] == "op_2"
-    assert "doc.Objects.Transform(object_id, xform, False)" in first.script
+    assert "doc.Objects.Replace(object_id, geometry)" in first.script
+    assert "doc.Objects.Transform(object_id" not in first.script
     assert "East Mass" in first.script
     assert first.expected_change.startswith("typed batch:")
 

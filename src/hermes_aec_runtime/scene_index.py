@@ -144,44 +144,51 @@ def build_rhino_audit_script(*, limit: int = 2000) -> str:
     if not 1 <= limit <= 10000:
         raise ValueError("limit must be between 1 and 10000")
     # Keep imports and APIs compatible with Rhino 8's embedded Python.
-    return f'''import json
+    return f'''import hashlib, json
 doc = __rhino_doc__
 limit = {limit}
 objects = []
 relationships = []
 layer_names = set()
-serials = []
+audit_errors = []
 for obj in doc.Objects:
     if len(objects) >= limit:
         break
-    geometry = obj.Geometry
-    bbox = geometry.GetBoundingBox(True)
-    if not bbox.IsValid:
-        continue
-    oid = str(obj.Id)
-    layer = doc.Layers[obj.Attributes.LayerIndex]
-    layer_name = layer.FullPath
-    layer_names.add(layer_name)
-    serials.append(int(obj.RuntimeSerialNumber))
-    groups = [str(i) for i in obj.Attributes.GetGroupList()]
-    row = {{
-        "id": oid,
-        "name": obj.Attributes.Name or "",
-        "kind": geometry.ObjectType.ToString(),
-        "layer": layer_name,
-        "visible": bool(obj.Visible),
-        "locked": bool(obj.IsLocked),
-        "bounds": {{"min": [bbox.Min.X, bbox.Min.Y, bbox.Min.Z], "max": [bbox.Max.X, bbox.Max.Y, bbox.Max.Z]}},
-        "groups": groups,
-    }}
-    objects.append(row)
-    relationships.append({{"type": "on_layer", "source": oid, "target": "layer:" + layer_name}})
-    for group in groups:
-        relationships.append({{"type": "in_group", "source": oid, "target": "group:" + group}})
-    if obj.InstanceDefinition is not None:
-        relationships.append({{"type": "instance_of", "source": oid, "target": "block:" + str(obj.InstanceDefinition.Id)}})
-all_count = int(doc.Objects.Count)
-revision = "%s:%s:%s" % (doc.RuntimeSerialNumber, all_count, max(serials) if serials else 0)
+    try:
+        geometry = obj.Geometry
+        if geometry is None:
+            continue
+        bbox = geometry.GetBoundingBox(True)
+        if not bbox.IsValid:
+            continue
+        oid = str(obj.Id)
+        layer = doc.Layers[obj.Attributes.LayerIndex]
+        layer_name = layer.FullPath if layer is not None else ""
+        layer_names.add(layer_name)
+        group_values = obj.Attributes.GetGroupList()
+        groups = [str(i) for i in group_values] if group_values else []
+        row = {{
+            "id": oid,
+            "name": obj.Attributes.Name or "",
+            "kind": geometry.ObjectType.ToString(),
+            "layer": layer_name,
+            "visible": bool(obj.Visible),
+            "locked": bool(obj.IsLocked),
+            "bounds": {{"min": [bbox.Min.X, bbox.Min.Y, bbox.Min.Z], "max": [bbox.Max.X, bbox.Max.Y, bbox.Max.Z]}},
+            "groups": groups,
+        }}
+        objects.append(row)
+        relationships.append({{"type": "on_layer", "source": oid, "target": "layer:" + layer_name}})
+        for group in groups:
+            relationships.append({{"type": "in_group", "source": oid, "target": "group:" + group}})
+        instance_definition = getattr(obj, "InstanceDefinition", None)
+        if instance_definition is not None:
+            relationships.append({{"type": "instance_of", "source": oid, "target": "block:" + str(instance_definition.Id)}})
+    except Exception as exc:
+        audit_errors.append({{"id": str(getattr(obj, "Id", "unknown")), "error": str(exc)[:240]}})
+all_count = sum(1 for _ in doc.Objects)
+revision_source = json.dumps(objects, sort_keys=True, separators=(",", ":"))
+revision = "%s:%s:%s" % (doc.RuntimeSerialNumber, all_count, hashlib.sha256(revision_source.encode("utf-8")).hexdigest()[:16])
 doc_bbox = None
 if objects:
     doc_bbox = {{
@@ -201,6 +208,7 @@ payload = {{
     "count": len(objects),
     "total_count": all_count,
     "truncated": all_count > len(objects),
+    "audit_errors": audit_errors[:25],
 }}
 print("{AUDIT_MARKER}" + json.dumps(payload, separators=(",", ":")))
 '''

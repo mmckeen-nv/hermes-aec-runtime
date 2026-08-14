@@ -175,7 +175,7 @@ def compile_transaction(operations: Sequence[Mapping[str, Any]]) -> CompiledTran
     """Compile a validated batch into one atomic-ish Rhino Python script.
 
     The existing sidecar owns the undo record and rollback. This script guarantees
-    in-place transforms (``copy=False``), stable alias resolution, and a structured
+    in-place transforms by replacing geometry under the same GUID, stable alias resolution, and a structured
     final stdout receipt.
     """
     ops = normalize_operations(operations)
@@ -231,8 +231,10 @@ for op in ops:
         elif "rotation" in op: xform = Rhino.Geometry.Transform.Rotation(Rhino.RhinoMath.ToRadians(op["rotation"]["degrees"]), vector(op["rotation"]["axis"]), center)
         else: xform = Rhino.Geometry.Transform.Scale(center, op["scale"])
         for object_id in ids(op["targets"]):
-            result = doc.Objects.Transform(object_id, xform, False)
-            if result == System.Guid.Empty: raise RuntimeError("in-place transform failed: " + str(object_id))
+            source = doc.Objects.FindId(object_id)
+            geometry = source.Geometry.Duplicate()
+            if not geometry.Transform(xform): raise RuntimeError("geometry transform failed: " + str(object_id))
+            if not doc.Objects.Replace(object_id, geometry): raise RuntimeError("in-place replacement failed: " + str(object_id))
             modified.append(str(object_id)); output.append(object_id)
     elif kind == "duplicate":
         xform = Rhino.Geometry.Transform.Translation(vector(op.get("translation", [0, 0, 0])))
