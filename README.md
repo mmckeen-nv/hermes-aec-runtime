@@ -22,6 +22,7 @@ Windows PowerShell:
 
 ```powershell
 .\Install.ps1
+.\Register-Hermes.ps1
 .\Start.ps1
 ```
 
@@ -34,7 +35,7 @@ Linux/macOS:
 ./start.sh
 ```
 
-The MCP server uses stdio. Add the generated entry from `.runtime/hermes-mcp.json` to the Hermes profile, then restart Hermes. Smoke-test without Hermes:
+The registration script adds the sidecar to both deployed Windows AEC profiles and hides raw Rhino scripting tools from Hermes. Restart Hermes after registration. The MCP server uses stdio; `.runtime/hermes-mcp.json` is also generated for manual registration. Smoke-test without Hermes:
 
 ```powershell
 .\.venv\Scripts\hermes-aec.exe doctor

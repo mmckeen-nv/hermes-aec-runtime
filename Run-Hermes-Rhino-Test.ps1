@@ -16,8 +16,14 @@ if (-not (Test-Path -LiteralPath $Launcher)) {
     throw "Deployed AEC launcher was not found at $Launcher"
 }
 
+$RequestedChange = Read-Host "Describe any change you want Hermes to make in Rhino"
+if ([string]::IsNullOrWhiteSpace($RequestedChange)) {
+    $RequestedChange = "Add a continuous 1.2 metre-high safety fence around the swimming pool with a 1.0 metre offset and one gate."
+}
 $Prompt = @"
-Use Rhino MCP only; do not use computer use or foreground UI automation. Inspect the active Cliff House model, identify the swimming pool boundary, and build a continuous 1.2 metre-high safety fence around the pool with a 1.0 metre offset and one clearly identifiable gate. Preserve the existing house and pool geometry. Verify the resulting fence height, continuity, offset, and object count in Rhino before reporting completion. Return a concise execution summary with the created object IDs and verification evidence.
+$RequestedChange
+
+Use the hermes_aec sidecar tools for Rhino scene preprocessing, one complete RhinoCommon mutation transaction, and independent verification. Do not use computer use, foreground UI automation, raw run_python, or raw run_csharp. Preserve unrelated geometry. Capture a viewport, save the working document, and report the execution receipt, changed object IDs, timing, and verification evidence.
 "@
 
 Set-Clipboard -Value $Prompt.Trim()
@@ -26,7 +32,7 @@ Write-Host "Starting a fresh Cliff House working copy, Rhino MCP, and Hermes..."
 
 Write-Host ""
 Write-Host "READY" -ForegroundColor Green
-Write-Host "The real workload is on your clipboard." -ForegroundColor Cyan
+Write-Host "Your requested workload is on the clipboard." -ForegroundColor Cyan
 Write-Host "1. Switch to Hermes."
 Write-Host "2. Paste the prompt into the modification profile."
 Write-Host "3. Return here and press Enter immediately before submitting it."
@@ -50,4 +56,3 @@ Write-Host ""
 Write-Host "This result includes model inference, MCP calls, Rhino execution, and Hermes verification." -ForegroundColor Gray
 Write-Host "Press Enter to close."
 Read-Host | Out-Null
-

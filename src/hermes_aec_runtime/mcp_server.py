@@ -4,6 +4,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .contracts import AECTransaction, AECAction
 from .runtime import assemble_transaction, execute_transaction, preprocess_scene, route_context
+from .rhino import RhinoClient
 
 mcp = FastMCP("Hermes AEC Runtime")
 
@@ -45,10 +46,51 @@ def proof_and_recovery(transaction: dict) -> dict:
     return execute_transaction(typed).to_dict()
 
 
+@mcp.tool()
+async def rhino_scene_preprocessing(
+    names: list[str] | None = None,
+    layer: str | None = None,
+    geometry_type: str | None = None,
+    include_hidden: bool = True,
+    limit: int = 5000,
+) -> dict:
+    """Index the active Rhino document or a filtered subset using stable object IDs."""
+    return await RhinoClient().scene_index(
+        names=names, layer=layer, geometry_type=geometry_type,
+        include_hidden=include_hidden, limit=limit,
+    )
+
+
+@mcp.tool()
+async def rhino_execute_python(
+    intent: str,
+    script: str,
+    expected_change: str,
+    dry_run: bool = True,
+) -> dict:
+    """Validate or execute a bounded Rhino Python/RhinoCommon mutation in one undo transaction. Use only __rhino_doc__ as the document handle. Returns created/deleted IDs and timing."""
+    return await RhinoClient().execute_python(
+        intent=intent, script=script, expected_change=expected_change, dry_run=dry_run,
+    )
+
+
+@mcp.tool()
+async def rhino_verify(
+    names: list[str] | None = None,
+    layer: str | None = None,
+    geometry_type: str | None = None,
+    limit: int = 5000,
+) -> dict:
+    """Independently verify Rhino objects after a mutation; filter by expected names, layer, or type."""
+    return await RhinoClient().scene_index(
+        names=names, layer=layer, geometry_type=geometry_type,
+        include_hidden=True, limit=limit,
+    )
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
     main()
-
