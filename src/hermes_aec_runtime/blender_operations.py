@@ -22,7 +22,7 @@ class CompiledBlenderTransaction:
 
 
 _KINDS = {
-    "import_scene", "ensure_collection", "transform", "assign_material",
+    "import_scene", "ensure_collection", "transform", "delete_objects", "assign_material",
     "create_camera", "create_light", "render_settings", "save_blend", "render",
 }
 _MAX_OPERATIONS = 256
@@ -31,6 +31,7 @@ _MAX_TEXT = 4_096
 _FIELDS = {
     "import_scene": {"op", "id", "path", "collection"}, "ensure_collection": {"op", "id", "name"},
     "transform": {"op", "id", "objects", "location", "rotation_degrees", "scale"},
+    "delete_objects": {"op", "id", "objects"},
     "assign_material": {"op", "id", "objects", "material", "base_color", "metallic", "roughness"},
     "create_camera": {"op", "id", "name", "location", "rotation_degrees", "lens_mm"},
     "create_light": {"op", "id", "name", "type", "location", "rotation_degrees", "energy"},
@@ -85,11 +86,13 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
             op["collection"] = _text(raw.get("collection", "AEC Import"), f"{path}.collection")
         elif kind == "ensure_collection":
             op["name"] = _text(raw.get("name"), f"{path}.name")
-        elif kind == "transform":
+        elif kind in {"transform", "delete_objects"}:
             objects = raw.get("objects", [])
             if not isinstance(objects, list): raise BlenderOperationError(f"{path}.objects: must be an array")
             op["objects"] = [_text(x, f"{path}.objects") for x in objects]
             if not op["objects"]: raise BlenderOperationError(f"{path}.objects: required")
+            if kind == "delete_objects":
+                result.append(op); aliases.add(alias); continue
             changed = False
             for key in ("location", "rotation_degrees", "scale"):
                 if key in raw: op[key] = _vec(raw[key], f"{path}.{key}"); changed = True
@@ -172,6 +175,11 @@ for op in ops:
             if "rotation_degrees" in op: obj.rotation_euler=[math.radians(x) for x in op["rotation_degrees"]]
             if "scale" in op: obj.scale=op["scale"]
             changed.append(obj.name)
+    elif kind=="delete_objects":
+        for name in op["objects"]:
+            obj=bpy.data.objects.get(name)
+            if obj is None: raise RuntimeError("Object not found: "+name)
+            bpy.data.objects.remove(obj,do_unlink=True); changed.append(name)
     elif kind=="assign_material":
         mat=bpy.data.materials.get(op["material"]) or bpy.data.materials.new(op["material"]); mat.diffuse_color=op["base_color"]
         mat.metallic=op["metallic"]; mat.roughness=op["roughness"]
