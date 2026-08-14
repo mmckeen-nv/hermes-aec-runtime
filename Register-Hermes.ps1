@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string[]]$Profile = @("cliff-house-modifications-windows", "cliff-house-full-build-windows"),
-    [int]$RhinoPort = 10500
+    [ValidateRange(1024, 65535)][int]$RhinoPort = 1999,
+    [ValidateRange(1024, 65535)][int]$LegacyRhinoPort = 10500,
+    [switch]$DisableLegacyFallback
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,6 +39,8 @@ foreach ($Name in $Profile) {
     $Config = [regex]::Replace($Config, '(?ms)^  # BEGIN HERMES AEC SIDECAR \(managed\)\r?\n.*?^  # END HERMES AEC SIDECAR \(managed\)\r?\n?', '')
     # Remove pre-v1 unmarked registration and hide the direct Rhino script escape hatches.
     $Config = [regex]::Replace($Config, '(?ms)^  hermes_aec:\r?\n(?:(?!^  [A-Za-z0-9_-]+:).)*(?=^  [A-Za-z0-9_-]+:|\z)', '')
+    # Hermes must never bypass the sidecar and invoke RhinoMCP/raw scripts itself.
+    $Config = [regex]::Replace($Config, '(?ms)^  rhino:\r?\n(?:(?!^  [A-Za-z0-9_-]+:).)*(?=^  [A-Za-z0-9_-]+:|\z)', '')
     $Config = [regex]::Replace($Config, '(?m)^\s{8}- (run_python|run_csharp)\r?\n?', '')
 
     $ToolLines = @(
@@ -56,9 +60,6 @@ foreach ($Name in $Profile) {
         "        - workflow_memory_query"
         "        - flight_recorder_record"
     )
-    if ($Name -eq "cliff-house-full-build-windows") {
-        $ToolLines += "        - rhino_execute_python"
-    }
     $ToolBlock = $ToolLines -join "`r`n"
     $Block = @"
 $Begin
@@ -66,8 +67,11 @@ $Begin
     command: $ServerYaml
     args: []
     env:
-      HERMES_AEC_CONFIG_VERSION: "1"
-      HERMES_AEC_RHINO_URL: http://127.0.0.1:$RhinoPort/
+      HERMES_AEC_CONFIG_VERSION: "2"
+      HERMES_AEC_RHINOMCP_HOST: 127.0.0.1
+      HERMES_AEC_RHINOMCP_PORT: "$RhinoPort"
+      HERMES_AEC_LEGACY_RHINO_URL: http://127.0.0.1:$LegacyRhinoPort/
+      HERMES_AEC_ENABLE_LEGACY_FALLBACK: "$(if ($DisableLegacyFallback) { '0' } else { '1' })"
     connect_timeout: 30
     timeout: 320
     enabled: true
@@ -82,5 +86,5 @@ $End
     $UpdatedSection = $Section.Value.TrimEnd() + "`r`n" + $Block.TrimEnd() + "`r`n"
     $Config = $Config.Substring(0, $Section.Index) + $UpdatedSection + $Config.Substring($Section.Index + $Section.Length)
     Set-AtomicText -Path $ConfigPath -Value ($Config.TrimEnd() + "`r`n")
-    Write-Host "HERMES_AEC_REGISTERED profile=$Name config_version=1 rhino_port=$RhinoPort backup=$Backup"
+    Write-Host "HERMES_AEC_REGISTERED profile=$Name config_version=2 rhinomcp_port=$RhinoPort backup=$Backup"
 }

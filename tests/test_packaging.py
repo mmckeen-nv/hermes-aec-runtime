@@ -33,22 +33,23 @@ SKILL_RHINO_TOOLS = {
 }
 
 
-def test_registration_exposes_typed_surface_and_scoped_full_build_escape():
+def test_registration_exposes_typed_surface_without_direct_host_escape():
     registration = (ROOT / "Register-Hermes.ps1").read_text(encoding="utf-8")
     for tool in TOOLS:
         assert f"- {tool}" in registration
     include = registration.split("tools:", 1)[1]
-    assert 'if ($Name -eq "cliff-house-full-build-windows")' in registration
-    assert registration.count("rhino_execute_python") == 1
+    assert "rhino_execute_python" not in registration
     assert "- run_python" not in include
     assert "- run_csharp" not in include
+    assert "Hermes must never bypass the sidecar" in registration
 
 
 def test_packaging_has_versioned_config_and_lifecycle_commands():
     installer = (ROOT / "Install.ps1").read_text(encoding="utf-8")
-    assert "schema_version = 1" in installer
-    assert 'HERMES_AEC_CONFIG_VERSION = "1"' in installer
-    for filename in ("Doctor.ps1", "Uninstall.ps1", "doctor.sh", "uninstall.sh"):
+    assert "schema_version = 2" in installer
+    assert 'HERMES_AEC_CONFIG_VERSION = "2"' in installer
+    assert 'HERMES_AEC_RHINOMCP_PORT = "$RhinoPort"' in installer
+    for filename in ("Doctor.ps1", "Install-RhinoMCP.ps1", "Uninstall.ps1", "doctor.sh", "uninstall.sh"):
         assert (ROOT / filename).is_file()
 
 
@@ -68,7 +69,7 @@ def test_registration_is_atomic_idempotent_and_preserves_following_yaml(tmp_path
     profile_root.mkdir(parents=True)
     config = profile_root / "config.yaml"
     config.write_text(
-        "model:\n  provider: test\n\nmcp_servers:\n  existing:\n    command: existing.exe\n\ntools:\n  custom: keep-me\n",
+        "model:\n  provider: test\n\nmcp_servers:\n  existing:\n    command: existing.exe\n  rhino:\n    url: http://127.0.0.1:10500/\n    tools:\n      include:\n        - run_python\n\ntools:\n  custom: keep-me\n",
         encoding="utf-8",
     )
     env = os.environ.copy()
@@ -83,5 +84,8 @@ def test_registration_is_atomic_idempotent_and_preserves_following_yaml(tmp_path
     assert updated.count("BEGIN HERMES AEC SIDECAR") == 1
     assert updated.index("  hermes_aec:") < updated.index("tools:")
     assert "custom: keep-me" in updated
+    assert "HERMES_AEC_RHINOMCP_PORT" in updated
+    assert "  rhino:" not in updated
+    assert "run_python" not in updated
     backups = list((profile_root / ".hermes-aec-backups").glob("config.*.yaml"))
     assert len(backups) == 2

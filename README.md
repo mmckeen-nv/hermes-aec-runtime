@@ -19,7 +19,7 @@ The fastest normal path is `aec_run_workflow`: one Hermes tool call performs rou
 - Windows 11 or Linux
 - Python 3.11 or newer on `PATH`
 - Hermes with MCP support
-- Rhino with its MCP bridge listening on port `10500`
+- Rhino 8 with RhinoMCP listening on loopback port `1999` (installed by `Install.ps1` through Yak)
 - For Blender workflows: Blender with its standard MCP add-on running, plus `uvx blender-mcp` available
 - For Linux CAD workflows: FreeCAD with `freecad-mcp` available
 
@@ -33,7 +33,9 @@ Open PowerShell in this folder and run:
 .\Install.ps1
 ```
 
-That command creates an isolated `.venv`, installs the sidecar, writes versioned MCP configuration, registers both Cliff House Hermes profiles when present, and runs diagnostics. Restart Hermes after installation.
+That command installs the pinned RhinoMCP plug-in, creates an isolated `.venv`, writes versioned MCP configuration, registers both Cliff House Hermes profiles when present, and runs diagnostics. Restart Rhino and Hermes after installation. In Rhino run `AECMCPStart` and select port `1999`; the temporary upstream 0.3.2 package uses `MCPStart` instead.
+
+Hermes never receives RhinoMCP or raw Rhino scripting tools directly. It sees only the sidecar's typed allowlist. The sidecar uses RhinoMCP's structured loopback protocol as its primary transport. A legacy bridge on port `10500` may be enabled only for typed operations that the new transport cannot yet preserve; pass `-DisableLegacyFallback` to prohibit that compatibility path.
 
 To check the installation at any time:
 
@@ -50,10 +52,10 @@ If Rhino is intentionally closed:
 To register a different profile or port:
 
 ```powershell
-.\Register-Hermes.ps1 -Profile "my-profile" -RhinoPort 10500
+.\Register-Hermes.ps1 -Profile "my-profile" -RhinoPort 1999
 ```
 
-Registration is idempotent and leaves a one-time `config.yaml.hermes-aec-backup` beside each changed Hermes profile. The modification profile is typed-only. The Full Build profile also receives the transactional Python escape hatch needed for specialized annotations not yet represented by typed operations. Generated configuration and the install manifest live in `.runtime/` and use `schema_version: 1`.
+Registration is idempotent and writes timestamped backups under `.hermes-aec-backups`. Both profiles are typed-only; registration also removes a direct `rhino` MCP entry left by older deployments. Generated configuration and the install manifest live in `.runtime/` and use `schema_version: 2`.
 
 To remove registration and generated installation files:
 
