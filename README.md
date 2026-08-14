@@ -86,6 +86,6 @@ Use the bundled skills under `skills/` to keep this sequence concise. A lost mut
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-See [architecture](docs/ARCHITECTURE.md), [demo integration](docs/DEMO_INTEGRATION.md), and [stack acceptance](docs/STACK_ACCEPTANCE.md). Demo repositories should pin a released sidecar version and call its installer; they should not copy runtime source.
+See [operator recipes](docs/OPERATOR_RECIPES.md), [architecture](docs/ARCHITECTURE.md), [workflow orchestration](docs/ORCHESTRATION.md), [demo integration](docs/DEMO_INTEGRATION.md), and [stack acceptance](docs/STACK_ACCEPTANCE.md). Demo repositories should pin a released sidecar version and call its installer; they should not copy runtime source.
 
 Model fine-tuning is gated, not assumed. Run `python tools/evaluate_model.py --mock --output .runtime/nemotron-readiness.json` to validate the evaluation harness. A real **Nemotron AEC Lightning** fine-tune remains NO-GO until at least 200 clean, independently verified Flight Recorder examples exist and the held-out model evaluation passes.
