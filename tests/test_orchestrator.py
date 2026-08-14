@@ -31,6 +31,12 @@ class FakeGateway:
         return {"status": self.receipt_status, "transaction_id": "tx-1", "created_ids": created, "deleted_ids": []}
 
 
+class ThrowingGateway(FakeGateway):
+    async def execute_typed(self, **kwargs):
+        self.calls.append(("execute", kwargs))
+        raise TimeoutError("response lost")
+
+
 def test_plan_routes_and_compiles_before_touching_a_host():
     plan = build_plan("Add a fence around the pool", [{"op": "create_line", "start": [0, 0, 0], "end": [1, 0, 0]}])
     assert plan.route.intent.value == "modify"
@@ -100,3 +106,17 @@ def test_failed_receipt_is_recorded_but_not_retried_or_promoted(tmp_path):
     assert result.status == "failed"
     assert [call[0] for call in gateway.calls] == ["query", "execute"]
     assert result.memory.status == "rejected"
+
+
+def test_lost_mutation_response_becomes_unknown_receipt_without_retry(tmp_path):
+    gateway = ThrowingGateway()
+    recorder = FlightRecorder(tmp_path / "flight.jsonl")
+    result = asyncio.run(WorkflowOrchestrator({"rhino": gateway}, recorder=recorder).run(
+        request="Add a fence", operations=[{"op": "create_point", "point": [0, 0, 0]}],
+        idempotency_key="lost:1",
+    ))
+    assert result.status == "unknown"
+    assert [call[0] for call in gateway.calls] == ["query", "execute"]
+    assert result.receipt["recovery"].startswith("Re-index")
+    assert result.memory.status == "rejected"
+    assert len(list(recorder.read())) == 1

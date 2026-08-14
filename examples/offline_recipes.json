@@ -1,0 +1,92 @@
+{
+  "schema_version": "aec-offline-recipes/1.0",
+  "recipes": [
+    {
+      "id": "rhino-pool-fence-modification",
+      "kind": "rhino_operations",
+      "description": "Create and label a 1.2 m-high schematic pool fence from a known path.",
+      "operations": [
+        {"op": "create_polyline", "id": "fence_path", "points": [[0, 0, 0], [12, 0, 0], [12, 8, 0], [0, 8, 0]], "closed": true},
+        {"op": "extrude_curve", "id": "fence_surface", "targets": ["$fence_path"], "vector": [0, 0, 1.2], "cap": false},
+        {"op": "set_attributes", "id": "label_fence", "targets": ["$fence_surface"], "name": "Pool Fence - Schematic", "layer": "A-SITE-FENCE", "color": [40, 110, 180]}
+      ]
+    },
+    {
+      "id": "rhino-full-build-massing-batch",
+      "kind": "rhino_operations",
+      "description": "Compile a deterministic three-level cliff-house massing batch in metres.",
+      "operations": [
+        {"op": "create_box", "id": "level_1", "min": [0, 0, 0], "max": [22, 14, 3.6]},
+        {"op": "create_box", "id": "level_2", "min": [1.5, 0, 3.6], "max": [20, 13, 7.2]},
+        {"op": "create_box", "id": "level_3", "min": [5, 1, 7.2], "max": [18, 12, 10.8]},
+        {"op": "set_attributes", "id": "organize_1", "targets": ["$level_1"], "name": "Level 1 Massing", "layer": "A-MASS-L1"},
+        {"op": "set_attributes", "id": "organize_2", "targets": ["$level_2"], "name": "Level 2 Massing", "layer": "A-MASS-L2"},
+        {"op": "set_attributes", "id": "organize_3", "targets": ["$level_3"], "name": "Level 3 Massing", "layer": "A-MASS-L3"}
+      ]
+    },
+    {
+      "id": "blender-cliff-house-visualization",
+      "kind": "blender_operations",
+      "description": "Import the Rhino handoff, create daylight and camera, then save a Blender working file.",
+      "operations": [
+        {"op": "import_scene", "id": "import_house", "path": "cliff_house.glb", "collection": "AEC House"},
+        {"op": "create_camera", "id": "north_camera", "name": "North Elevation", "location": [28, -32, 18], "rotation_degrees": [67, 0, 40], "lens_mm": 50},
+        {"op": "create_light", "id": "daylight", "name": "AEC Sun", "type": "SUN", "rotation_degrees": [25, -20, -35], "energy": 3},
+        {"op": "render_settings", "id": "preview", "engine": "BLENDER_EEVEE_NEXT", "resolution": [1600, 900], "samples": 64},
+        {"op": "save_blend", "id": "save", "path": "cliff_house_visualization.blend"}
+      ]
+    },
+    {
+      "id": "rhino-to-blender-handoff",
+      "kind": "handoff_manifest",
+      "description": "Validate units and stable Rhino identifiers before Blender import.",
+      "manifest": {"schema_version": "1.0", "source_host": "rhino", "units": "meters", "export_path": "cliff_house.glb", "objects": [{"rhino_id": "11111111-1111-1111-1111-111111111111", "layer": "A-MASS-L1"}, {"rhino_id": "22222222-2222-2222-2222-222222222222", "layer": "A-MASS-L2"}]}
+    },
+    {
+      "id": "unknown-blender-receipt-recovery",
+      "kind": "recovery",
+      "description": "Reconcile an unknown mutation rather than submitting it again under a new key.",
+      "receipt": {"status": "unknown", "transaction_id": "tx-blender-001"},
+      "expected_action": "reconcile"
+    },
+    {
+      "id": "verified-outcome-memory-promotion",
+      "kind": "workflow_memory",
+      "description": "Promote only a completed, verified typed result.",
+      "project_id": "cliff-house-demo",
+      "host": "rhino",
+      "operation_signature": "create_polyline>extrude_curve>set_attributes",
+      "receipt": {"schema_version": "1.0", "transaction_id": "tx-fence-001", "status": "completed", "actions_attempted": 3, "actions_completed": 3, "created_ids": ["fence-1"]},
+      "verification": {"schema_version": "1.0", "status": "verified", "passed": ["object_exists", "layer_matches"], "failed": []},
+      "trace": [{"operation": "create_polyline", "tool": "rhino_apply_operations", "duration_ms": 40, "success": true, "retry_count": 0, "host_revision": 42}],
+      "expected_status": "promoted"
+    },
+    {
+      "id": "verified-flight-trace",
+      "kind": "flight_recorder",
+      "description": "Build a privacy-safe training trace and pass the default quality gate.",
+      "request": "Move the north wall 300 mm",
+      "route": {"kind": "modify", "host": "rhino"},
+      "scene_subset": {"objects": [{"id": "wall-north", "kind": "Brep"}]},
+      "transaction": {"operations": [{"op": "transform_in_place", "targets": ["wall-north"], "translation": [0, 0.3, 0]}]},
+      "timing": {"elapsed_ms": 125},
+      "tool_outcomes": [{"tool": "rhino_apply_operations", "success": true}],
+      "receipt": {"state": "completed", "transaction_id": "tx-wall-001"},
+      "verification": {"status": "verified", "failed": []}
+    },
+    {
+      "id": "offline-model-candidate-evaluation",
+      "kind": "model_evaluation",
+      "description": "Score one provider-neutral typed candidate without calling a model or mutating a host.",
+      "task": {"id": "recipe-rhino-box", "prompt": "Create a mechanical curb box", "host": "rhino", "expected": {"route": "modify", "allowed_tools": ["create_box"]}},
+      "candidate": {
+        "route": {"kind": "modify", "host": "rhino"},
+        "tools": ["create_box"],
+        "transaction": {"schema_version": "1.0.0", "kind": "operation_transaction", "id": "tx-recipe-box", "created_at": 0, "host": "rhino", "document_revision": 42, "idempotency_key": "recipe-box-001", "operations": [{"op": "create_box"}]},
+        "verification": {"required": true},
+        "usage": {"tool_calls": 3, "elapsed_ms": 125, "input_tokens": 500, "output_tokens": 100, "operations": 1, "script_bytes": 0}
+      },
+      "expected_passed": true
+    }
+  ]
+}

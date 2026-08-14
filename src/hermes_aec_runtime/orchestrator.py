@@ -124,10 +124,19 @@ class WorkflowOrchestrator:
         if not idempotency_key.strip():
             raise ValueError("idempotency_key is required for mutations")
 
-        receipt = await gateway.execute_typed(
-            intent=plan.route.intent.value, operations=list(plan.operations),
-            idempotency_key=idempotency_key, dry_run=dry_run,
-        )
+        try:
+            receipt = await gateway.execute_typed(
+                intent=plan.route.intent.value, operations=list(plan.operations),
+                idempotency_key=idempotency_key, dry_run=dry_run,
+            )
+        except Exception as exc:
+            # A lost mutation response is ambiguous. Never retry it here; persist
+            # enough evidence for the host recovery path to reconcile it.
+            receipt = {
+                "schema_version": "1.0", "status": "unknown", "transaction_id": None,
+                "error": f"{type(exc).__name__}: {exc}",
+                "recovery": "Re-index the host and reconcile before retrying with the same idempotency key.",
+            }
         receipt = dict(receipt)
         receipt.setdefault("actions_attempted", len(plan.operations))
         receipt.setdefault("actions_completed", len(plan.operations) if receipt.get("status") == "completed" else 0)
@@ -135,8 +144,16 @@ class WorkflowOrchestrator:
             verification = {"schema_version": "1.0", "status": "not_run", "passed": [], "failed": ["host mutation did not complete"]}
             return await self._finish(plan, request, before, None, receipt, verification, project_id, started, model, token_usage)
 
-        after = await gateway.query(plan.query.to_dict())
-        verification = verify_transaction(receipt, before, after, assertions).to_dict()
+        try:
+            after = await gateway.query(plan.query.to_dict())
+            verification = verify_transaction(receipt, before, after, assertions).to_dict()
+        except Exception as exc:
+            after = None
+            verification = {
+                "schema_version": "1.0", "status": "failed", "passed": [],
+                "failed": [f"post-mutation scene query failed: {type(exc).__name__}: {exc}"],
+                "transaction_id": receipt.get("transaction_id"),
+            }
         return await self._finish(plan, request, before, after, receipt, verification, project_id, started, model, token_usage)
 
     async def _finish(
@@ -157,7 +174,10 @@ class WorkflowOrchestrator:
             receipt=receipt, verification=verification, model=model, token_usage=token_usage,
         )
         appended = self.recorder.append(trace) if self.recorder is not None else False
-        status = "verified" if verification.get("status") == "verified" else receipt.get("status", "failed")
+        status = (
+            "verified" if verification.get("status") == "verified" else
+            "unverified" if receipt.get("status") == "completed" else receipt.get("status", "failed")
+        )
         return WorkflowResult(status, plan, before, receipt, after, verification, outcome, trace["trace_id"], appended)
 
 
