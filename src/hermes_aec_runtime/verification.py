@@ -30,6 +30,22 @@ def _name_set(scene: dict[str, Any]) -> set[str]:
     return {str(obj.get("name") or "") for obj in _objects(scene)}
 
 
+def _stable_ids(scene: dict[str, Any], label: str, failed: list[str]) -> set[str]:
+    values = [obj.get("id") for obj in _objects(scene)]
+    missing = sum(value is None or not str(value).strip() for value in values)
+    ids = [str(value) for value in values if value is not None and str(value).strip()]
+    duplicates = len(ids) - len(set(ids))
+    if missing:
+        failed.append(f"{label} scene has {missing} object(s) without stable IDs")
+    if duplicates:
+        failed.append(f"{label} scene has {duplicates} duplicate stable ID(s)")
+    return set(ids)
+
+
+def _by_id(scene: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(obj["id"]): obj for obj in _objects(scene) if obj.get("id") is not None}
+
+
 def verify_transaction(
     receipt: dict[str, Any],
     before: dict[str, Any],
@@ -46,12 +62,14 @@ def verify_transaction(
     else:
         failed.append(f"receipt status is {receipt.get('status', 'missing')}")
 
-    before_ids = {str(obj.get("id")) for obj in _objects(before)}
-    after_ids = {str(obj.get("id")) for obj in _objects(after)}
+    before_ids = _stable_ids(before, "before", failed)
+    after_ids = _stable_ids(after, "after", failed)
     observed_created = after_ids - before_ids
     observed_deleted = before_ids - after_ids
     receipt_created = set(receipt.get("created_ids") or [])
     receipt_deleted = set(receipt.get("deleted_ids") or [])
+    operation_result = receipt.get("operation_result") or {}
+    receipt_modified = set(receipt.get("modified_ids") or operation_result.get("modified") or [])
 
     if receipt_created == observed_created:
         passed.append("created IDs match independent scene delta")
@@ -61,6 +79,20 @@ def verify_transaction(
         passed.append("deleted IDs match independent scene delta")
     else:
         failed.append(f"deleted ID mismatch receipt={sorted(receipt_deleted)} observed={sorted(observed_deleted)}")
+
+    before_objects, after_objects = _by_id(before), _by_id(after)
+    for object_id in sorted(receipt_modified):
+        prior, current = before_objects.get(str(object_id)), after_objects.get(str(object_id))
+        if prior is None or current is None:
+            failed.append(f"modified ID missing from independent snapshots: {object_id}")
+            continue
+        before_hash, after_hash = prior.get("content_hash"), current.get("content_hash")
+        if not before_hash or not after_hash:
+            failed.append(f"modified ID lacks independent content hash: {object_id}")
+        elif before_hash == after_hash:
+            failed.append(f"modified ID content did not change: {object_id}")
+        else:
+            passed.append(f"modified ID content changed: {object_id}")
 
     expected_delta = assertions.get("object_count_delta")
     if expected_delta is not None:
@@ -105,4 +137,3 @@ def verify_transaction(
         failed=tuple(failed),
         transaction_id=receipt.get("transaction_id"),
     )
-

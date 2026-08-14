@@ -6,7 +6,7 @@ import pytest
 
 from hermes_aec_runtime.flight_recorder import FlightRecorder
 from hermes_aec_runtime.memory import MemoryDMLAdapter
-from hermes_aec_runtime.orchestrator import WorkflowOrchestrator, build_plan
+from hermes_aec_runtime.orchestrator import RhinoWorkflowGateway, WorkflowOrchestrator, build_plan
 
 
 class FakeGateway:
@@ -120,3 +120,17 @@ def test_lost_mutation_response_becomes_unknown_receipt_without_retry(tmp_path):
     assert result.receipt["recovery"].startswith("Re-index")
     assert result.memory.status == "rejected"
     assert len(list(recorder.read())) == 1
+
+
+def test_rhino_gateway_blocks_stale_document_revision_before_mutation():
+    class Client:
+        executed = False
+        async def document_revision(self): return "new-revision"
+        async def execute_python(self, **kwargs): self.executed = True; return {"status":"completed"}
+    client = Client()
+    receipt = asyncio.run(RhinoWorkflowGateway(client).execute_typed(
+        intent="modify", operations=[{"op":"create_point","point":[0,0,0]}],
+        idempotency_key="stale:1", dry_run=False, document_revision="old-revision",
+    ))
+    assert receipt["status"] == "blocked"
+    assert client.executed is False

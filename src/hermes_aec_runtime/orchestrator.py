@@ -25,7 +25,7 @@ class WorkflowGateway(Protocol):
     async def query(self, query: dict[str, Any]) -> dict[str, Any]: ...
     async def execute_typed(
         self, *, intent: str, operations: list[dict[str, Any]],
-        idempotency_key: str, dry_run: bool,
+        idempotency_key: str, dry_run: bool, document_revision: str | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -131,6 +131,7 @@ class WorkflowOrchestrator:
             receipt = await gateway.execute_typed(
                 intent=plan.route.intent.value, operations=list(plan.operations),
                 idempotency_key=idempotency_key, dry_run=dry_run,
+                document_revision=before.get("document_revision"),
             )
         except Exception as exc:
             # A lost mutation response is ambiguous. Never retry it here; persist
@@ -192,8 +193,12 @@ class RhinoWorkflowGateway:
         # and rank locally when the request only provides natural-language terms.
         scene = await self.client.scene_query(query={"limit": 2000})
         return _focus_scene(scene, query)
-    async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool) -> dict[str, Any]:
+    async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool, document_revision: str | None = None) -> dict[str, Any]:
         compiled = compile_transaction(operations)
+        if document_revision is not None:
+            current_revision = await self.client.document_revision()
+            if current_revision != document_revision:
+                return {"status":"blocked", "error":"document revision changed after the focused query", "expected_document_revision":document_revision, "current_document_revision":current_revision}
         return await self.client.execute_python(intent=intent, script=compiled.script, expected_change=compiled.expected_change, dry_run=dry_run, idempotency_key=idempotency_key)
 
 
@@ -202,7 +207,7 @@ class BlenderWorkflowGateway:
     def __init__(self, gateway: Any) -> None: self.gateway = gateway
     async def query(self, query: dict[str, Any]) -> dict[str, Any]:
         return _focus_scene(await self.gateway.scene_preprocessing(), query)
-    async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool) -> dict[str, Any]:
+    async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool, document_revision: str | None = None) -> dict[str, Any]:
         return await self.gateway.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
 
 
@@ -211,7 +216,7 @@ class FreeCADWorkflowGateway:
     def __init__(self, gateway: Any) -> None: self.gateway = gateway
     async def query(self, query: dict[str, Any]) -> dict[str, Any]:
         return _focus_scene(await self.gateway.scene_query(), query)
-    async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool) -> dict[str, Any]:
+    async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool, document_revision: str | None = None) -> dict[str, Any]:
         return await self.gateway.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
 
 

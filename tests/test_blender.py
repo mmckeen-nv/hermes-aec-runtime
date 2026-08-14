@@ -22,7 +22,9 @@ def test_scene_preprocessing_matches_runtime_shape_and_retries_reads():
     state = {"calls": [], "failures": 2}
     scene = asyncio.run(gateway(state).scene_preprocessing())
     assert scene["host"] == "blender"
-    assert scene["objects"][0] == {"id": "a", "name": "House", "kind": "MESH", "layer": "AEC", "properties": {"location": [0, 0, 0]}}
+    item = scene["objects"][0]
+    assert {key:item[key] for key in ("id","name","kind","layer","properties")} == {"id": "a", "name": "House", "kind": "MESH", "layer": "AEC", "properties": {"location": [0, 0, 0]}}
+    assert len(item["content_hash"]) == 64
     assert len(scene["document_revision"]) == 64
     assert len(state["calls"]) == 3
 

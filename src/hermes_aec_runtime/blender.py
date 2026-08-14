@@ -82,11 +82,13 @@ class BlenderGateway:
         payload = await self._read(lambda: self._call("get_scene_info", {}))
         objects = []
         for raw in payload.get("objects", []):
-            objects.append({
+            item = {
                 "id": str(raw.get("id") or raw.get("name")), "name": str(raw.get("name", "")),
                 "kind": str(raw.get("type", "UNKNOWN")), "layer": str(raw.get("collection", "Scene Collection")),
                 "properties": {k: raw[k] for k in ("location", "rotation", "scale", "bounds", "materials") if k in raw},
-            })
+            }
+            item["content_hash"] = sha256(json.dumps(item, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            objects.append(item)
         canonical = json.dumps(objects, sort_keys=True, separators=(",", ":"))
         return {
             "schema_version": "1.0", "host": "blender",

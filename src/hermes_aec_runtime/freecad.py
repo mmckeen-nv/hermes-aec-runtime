@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import dataclass, field
 import json
 import os
+from hashlib import sha256
 from typing import Any, Callable, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
@@ -58,13 +59,15 @@ class FreeCADGateway:
         for item in source:
             name = str(item.get("name") or item.get("Name") or item.get("label") or item.get("Label") or "")
             stable_id = str(item.get("id") or item.get("uuid") or item.get("Name") or item.get("name") or "")
-            objects.append({
+            normalized = {
                 "id": stable_id, "name": str(item.get("label") or item.get("Label") or name),
                 "kind": str(item.get("type") or item.get("TypeId") or "UNKNOWN"),
                 "layer": str(item.get("group") or item.get("Group") or ""),
                 "visible": bool(item.get("visible", item.get("Visibility", True))),
                 "bounds": item.get("bounds") or item.get("BoundBox"),
-            })
+            }
+            normalized["content_hash"] = sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+            objects.append(normalized)
         return {"schema_version":"freecad-scene-index/1.0", "host":"freecad", "document":raw.get("document", {}), "objects":objects, "count":len(objects)}
 
     async def execute(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool = False) -> dict[str, Any]:

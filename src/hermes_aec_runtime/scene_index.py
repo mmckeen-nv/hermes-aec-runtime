@@ -177,6 +177,12 @@ for obj in doc.Objects:
             "bounds": {{"min": [bbox.Min.X, bbox.Min.Y, bbox.Min.Z], "max": [bbox.Max.X, bbox.Max.Y, bbox.Max.Z]}},
             "groups": groups,
         }}
+        content_source = [
+            row["kind"], row["name"], row["layer"], row["visible"], row["locked"],
+            row["bounds"], groups, int(geometry.GetHashCode()),
+            int(obj.Attributes.ObjectColor.ToArgb()), int(obj.Attributes.MaterialIndex),
+        ]
+        row["content_hash"] = hashlib.sha256(json.dumps(content_source, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         objects.append(row)
         relationships.append({{"type": "on_layer", "source": oid, "target": "layer:" + layer_name}})
         for group in groups:
