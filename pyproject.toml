@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-aec-runtime"
+version = "0.1.0"
+description = "A small, deterministic AEC execution sidecar for Hermes"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["mcp>=1.12,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "PyYAML>=6,<7"]
+
+[project.scripts]
+hermes-aec = "hermes_aec_runtime.cli:main"
+hermes-aec-mcp = "hermes_aec_runtime.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Proof and Recovery"
+  short_description: "Verify AEC changes and recover from tool failures"
+  default_prompt: "Use $proof-and-recovery to verify the result and recover any failed actions."

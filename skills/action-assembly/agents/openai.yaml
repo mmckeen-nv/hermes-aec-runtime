@@ -1,0 +1,4 @@
+interface:
+  display_name: "Action Assembly"
+  short_description: "Compile intent into deterministic host application actions"
+  default_prompt: "Use $action-assembly to compile this requested AEC change into host actions."

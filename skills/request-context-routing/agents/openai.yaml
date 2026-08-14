@@ -1,0 +1,4 @@
+interface:
+  display_name: "Request Context Routing"
+  short_description: "Route an AEC request to only the context it needs"
+  default_prompt: "Use $request-context-routing to classify this AEC request before execution."

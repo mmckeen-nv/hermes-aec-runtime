@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scene Pre-Processing"
+  short_description: "Build a compact, verified index of the active AEC scene"
+  default_prompt: "Use $scene-pre-processing to inspect and index the active AEC model."
