@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mmckeen-nv.github.io/hermes-aec-runtime/schemas/memory-outcome-v1.json",
+  "title": "Sanitized Workflow Memory Outcome",
+  "type": "object",
+  "required": ["schema_version", "outcome_id", "project_id", "host", "transaction_id", "operation_signature", "status", "quality_score", "receipt", "verification", "trace_summary"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "outcome_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "host": {"type": "string", "minLength": 1, "maxLength": 64},
+    "transaction_id": {"type": "string", "maxLength": 128},
+    "operation_signature": {"type": "string", "minLength": 1, "maxLength": 256},
+    "status": {"enum": ["promoted", "quarantined", "rejected"]},
+    "quality_score": {"type": "number", "minimum": 0, "maximum": 1},
+    "receipt": {"type": "object"},
+    "verification": {"type": "object"},
+    "trace_summary": {"type": "array", "items": {"type": "object"}, "maxItems": 100}
+  },
+  "additionalProperties": false
+}

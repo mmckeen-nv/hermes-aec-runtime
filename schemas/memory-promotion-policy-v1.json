@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mmckeen-nv.github.io/hermes-aec-runtime/schemas/memory-promotion-policy-v1.json",
+  "title": "Workflow Memory Promotion Policy",
+  "type": "object",
+  "properties": {
+    "promote_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.85},
+    "quarantine_score": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.6},
+    "maximum_duration_ms": {"type": "number", "exclusiveMinimum": 0, "default": 30000},
+    "require_verified": {"type": "boolean", "default": true}
+  },
+  "additionalProperties": false
+}
