@@ -25,7 +25,7 @@ Windows PowerShell:
 .\Start.ps1
 ```
 
-After installation, double-click the **AEC Runtime Test** desktop shortcut or run `Test-Sidecar.ps1` to see and time the complete mock workflow.
+Use `Test-Sidecar.ps1` for the isolated mock workflow. Use `Run-Hermes-Rhino-Test.ps1` for a manually timed end-to-end Cliff House test through the deployed Hermes UI and Rhino MCP.
 
 Linux/macOS:
 
