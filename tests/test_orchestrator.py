@@ -137,6 +137,24 @@ def test_rhino_gateway_blocks_stale_document_revision_before_mutation():
     assert client.executed is False
 
 
+def test_rhino_workflow_gateway_prefers_direct_typed_transport():
+    class Direct:
+        calls = []
+        async def scene_index(self, **kwargs):
+            self.calls.append(("scene", kwargs)); return {"objects": [], "document_revision": "r1"}
+        async def execute_operations(self, **kwargs):
+            self.calls.append(("execute", kwargs)); return {"status": "completed"}
+    direct = Direct(); gateway = RhinoWorkflowGateway(direct)
+    asyncio.run(gateway.query({"terms": [], "limit": 4}))
+    receipt = asyncio.run(gateway.execute_typed(
+        intent="create", operations=[{"op": "create_point", "point": [0, 0, 0]}],
+        idempotency_key="direct:1", dry_run=False, document_revision="r1",
+    ))
+    assert receipt["status"] == "completed"
+    assert direct.calls[0] == ("scene", {"max_objects": 2000})
+    assert direct.calls[1][1]["document_revision"] == "r1"
+
+
 def test_workflow_emits_correlated_stage_metrics(tmp_path):
     result = asyncio.run(WorkflowOrchestrator(
         {"rhino": FakeGateway()}, recorder=FlightRecorder(tmp_path / "flight.jsonl"),

@@ -201,14 +201,22 @@ class WorkflowOrchestrator:
 
 
 class RhinoWorkflowGateway:
-    """Adapter over the existing RhinoClient; all mutation stays in that client."""
+    """Adapter over the direct RhinoMCP gateway (legacy client compatible)."""
     def __init__(self, client: Any) -> None: self.client = client
     async def query(self, query: dict[str, Any]) -> dict[str, Any]:
         # The Rhino rich index has exact/spatial selectors. Fetch a bounded index
         # and rank locally when the request only provides natural-language terms.
-        scene = await self.client.scene_query(query={"limit": 2000})
+        if hasattr(self.client, "scene_index"):
+            scene = await self.client.scene_index(max_objects=2000)
+        else:
+            scene = await self.client.scene_query(query={"limit": 2000})
         return _focus_scene(scene, query)
     async def execute_typed(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool, document_revision: str | None = None) -> dict[str, Any]:
+        if hasattr(self.client, "execute_operations"):
+            return await self.client.execute_operations(
+                intent=intent, operations=operations, idempotency_key=idempotency_key,
+                dry_run=dry_run, document_revision=document_revision,
+            )
         compiled = compile_transaction(operations)
         if document_revision is not None:
             current_revision = await self.client.document_revision()

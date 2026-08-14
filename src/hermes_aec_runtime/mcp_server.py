@@ -25,7 +25,7 @@ _recorder = FlightRecorder(Path(os.environ.get("HERMES_AEC_TRACE_PATH", ".hermes
 _freecad = FreeCADGateway()
 _rhino_direct = RhinoMCPGateway()
 _workflow = WorkflowOrchestrator(
-    {"rhino": RhinoWorkflowGateway(RhinoClient()), "blender": BlenderWorkflowGateway(_blender), "freecad": FreeCADWorkflowGateway(_freecad)},
+    {"rhino": RhinoWorkflowGateway(_rhino_direct), "blender": BlenderWorkflowGateway(_blender), "freecad": FreeCADWorkflowGateway(_freecad)},
     recorder=_recorder, memory=_memory,
 )
 
