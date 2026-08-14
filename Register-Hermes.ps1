@@ -3,7 +3,8 @@ param(
     [string[]]$Profile = @("cliff-house-modifications-windows", "cliff-house-full-build-windows"),
     [ValidateRange(1024, 65535)][int]$RhinoPort = 1999,
     [ValidateRange(1024, 65535)][int]$LegacyRhinoPort = 10500,
-    [switch]$DisableLegacyFallback
+    [switch]$DisableLegacyFallback,
+    [switch]$EnableLegacyFallback
 )
 
 $ErrorActionPreference = "Stop"
@@ -71,7 +72,7 @@ $Begin
       HERMES_AEC_RHINOMCP_HOST: 127.0.0.1
       HERMES_AEC_RHINOMCP_PORT: "$RhinoPort"
       HERMES_AEC_LEGACY_RHINO_URL: http://127.0.0.1:$LegacyRhinoPort/
-      HERMES_AEC_ENABLE_LEGACY_FALLBACK: "$(if ($DisableLegacyFallback) { '0' } else { '1' })"
+      HERMES_AEC_ENABLE_LEGACY_FALLBACK: "$(if ($EnableLegacyFallback -and -not $DisableLegacyFallback) { '1' } else { '0' })"
     connect_timeout: 30
     timeout: 320
     enabled: true

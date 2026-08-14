@@ -19,7 +19,7 @@ The fastest normal path is `aec_run_workflow`: one Hermes tool call performs rou
 - Windows 11 or Linux
 - Python 3.11 or newer on `PATH`
 - Hermes with MCP support
-- Rhino 8 with RhinoMCP listening on loopback port `1999` (installed by `Install.ps1` through Yak)
+- Rhino 8 with the bundled hardened AEC RhinoMCP listening on loopback port `1999`
 - For Blender workflows: Blender with its standard MCP add-on running, plus `uvx blender-mcp` available
 - For Linux CAD workflows: FreeCAD with `freecad-mcp` available
 
@@ -33,9 +33,9 @@ Open PowerShell in this folder and run:
 .\Install.ps1
 ```
 
-That command installs the pinned RhinoMCP plug-in, creates an isolated `.venv`, writes versioned MCP configuration, registers both Cliff House Hermes profiles when present, and runs diagnostics. Restart Rhino and Hermes after installation. In Rhino run `AECMCPStart` and select port `1999`; the temporary upstream 0.3.2 package uses `MCPStart` instead.
+That command installs the pinned hardened plug-in from the runtime's verified bundle, creates an isolated `.venv`, writes versioned MCP configuration, registers both Cliff House Hermes profiles when present, and runs diagnostics. Restart Rhino and Hermes after installation. In Rhino run `AECMCPStart`; it listens on loopback port `1999`.
 
-Hermes never receives RhinoMCP or raw Rhino scripting tools directly. It sees only the sidecar's typed allowlist. The sidecar uses RhinoMCP's structured loopback protocol as its primary transport. A legacy bridge on port `10500` may be enabled only for typed operations that the new transport cannot yet preserve; pass `-DisableLegacyFallback` to prohibit that compatibility path.
+Hermes never receives RhinoMCP or raw Rhino scripting tools directly. It sees only the sidecar's typed allowlist. The sidecar uses the hardened plug-in's structured loopback protocol as its primary transport. The legacy bridge is disabled by default; `-EnableLegacyFallback` is available only for deliberate compatibility testing.
 
 To check the installation at any time:
 

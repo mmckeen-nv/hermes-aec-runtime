@@ -4,9 +4,9 @@ param(
     [ValidateRange(1024, 65535)][int]$RhinoPort = 1999,
     [ValidateRange(1024, 65535)][int]$LegacyRhinoPort = 10500,
     [switch]$DisableLegacyFallback,
+    [switch]$EnableLegacyFallback,
     [switch]$SkipRhinoMCPInstall,
-    [string]$RhinoMCPPackage = "rhinomcp",
-    [string]$RhinoMCPVersion = "0.3.2"
+    [string]$RhinoMCPVersion = "0.4.0-aec.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +15,7 @@ $Runtime = Join-Path $Root ".runtime"
 $Python = Get-Command python -ErrorAction Stop
 
 if (-not $SkipRhinoMCPInstall) {
-    & (Join-Path $Root "Install-RhinoMCP.ps1") -Package $RhinoMCPPackage -Version $RhinoMCPVersion
+    & (Join-Path $Root "Install-RhinoMCP.ps1") -Version $RhinoMCPVersion
 }
 
 if ([version](& $Python.Source -c "import sys; print('.'.join(map(str, sys.version_info[:3])))") -lt [version]"3.11") {
@@ -42,7 +42,7 @@ $Config = @{
                 HERMES_AEC_RHINOMCP_HOST = "127.0.0.1"
                 HERMES_AEC_RHINOMCP_PORT = "$RhinoPort"
                 HERMES_AEC_LEGACY_RHINO_URL = "http://127.0.0.1:$LegacyRhinoPort/"
-                HERMES_AEC_ENABLE_LEGACY_FALLBACK = $(if ($DisableLegacyFallback) { "0" } else { "1" })
+                HERMES_AEC_ENABLE_LEGACY_FALLBACK = $(if ($EnableLegacyFallback -and -not $DisableLegacyFallback) { "1" } else { "0" })
             }
         }
     }
@@ -56,8 +56,8 @@ $Config | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Runtime
 } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $Runtime "install-manifest.json") -Encoding utf8
 
 if (-not $SkipHermesRegistration) {
-    & (Join-Path $Root "Register-Hermes.ps1") -RhinoPort $RhinoPort -LegacyRhinoPort $LegacyRhinoPort -DisableLegacyFallback:$DisableLegacyFallback
+    & (Join-Path $Root "Register-Hermes.ps1") -RhinoPort $RhinoPort -LegacyRhinoPort $LegacyRhinoPort -DisableLegacyFallback:$DisableLegacyFallback -EnableLegacyFallback:$EnableLegacyFallback
 }
 & (Join-Path $Root "Doctor.ps1") -RhinoPort $RhinoPort -AllowRhinoOffline
-Write-Host "HERMES_AEC_INSTALLED config_version=2 rhinomcp_port=$RhinoPort legacy_fallback=$((-not $DisableLegacyFallback).ToString().ToLower())"
-Write-Host "Restart Hermes and Rhino. In Rhino run AECMCPStart (MCPStart on upstream 0.3.2), then use a demo shortcut."
+Write-Host "HERMES_AEC_INSTALLED config_version=2 rhinomcp_port=$RhinoPort legacy_fallback=$(($EnableLegacyFallback -and -not $DisableLegacyFallback).ToString().ToLower())"
+Write-Host "Restart Hermes and Rhino. In Rhino run AECMCPStart, then use a demo shortcut."

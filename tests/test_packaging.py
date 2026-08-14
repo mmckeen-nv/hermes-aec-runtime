@@ -51,6 +51,10 @@ def test_packaging_has_versioned_config_and_lifecycle_commands():
     assert 'HERMES_AEC_RHINOMCP_PORT = "$RhinoPort"' in installer
     for filename in ("Doctor.ps1", "Install-RhinoMCP.ps1", "Uninstall.ps1", "doctor.sh", "uninstall.sh"):
         assert (ROOT / filename).is_file()
+    assert (ROOT / "vendor" / "aec-rhinomcp-0.4.0-aec.1-windows.zip").is_file()
+    plugin_installer = (ROOT / "Install-RhinoMCP.ps1").read_text(encoding="utf-8")
+    assert "ca441fe8-afc4-43a4-bee5-53e65030d229" in plugin_installer
+    assert "yak.exe" not in plugin_installer.casefold()
 
 
 def test_skills_name_only_the_typed_rhino_tools():

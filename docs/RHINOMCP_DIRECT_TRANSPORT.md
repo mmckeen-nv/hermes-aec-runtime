@@ -28,13 +28,12 @@ or non-object responses.
   reconciled, failed, or unknown receipts without issuing another mutation.
 - Receipts include content-derived before/after document revisions, observed
   created/deleted GUIDs, bound output GUIDs, command results, and verification.
-- Typed operations unsupported by RhinoMCP fail closed. Only a transaction made
-  entirely of `transform_in_place` and/or `duplicate` may use an explicitly
-  supplied legacy executor. Mixed transactions never cross transports.
+- The bundled hardened plug-in implements stable-GUID transforms and typed
+  duplication. An incompatible upstream plug-in fails the `aec-rhinomcp/1`
+  capability handshake before any mutation is sent.
 
-The compatibility fallback is temporary. Once the hardened plugin exposes
-stable-GUID transforms and typed duplication, those mappings should move into
-`rhinomcp_mapping.py` and the legacy executor should be removed.
+The legacy bridge is disabled by default. It is an explicit operator-only
+compatibility option and is never used by a normal installation.
 
 ## Integration API
 
