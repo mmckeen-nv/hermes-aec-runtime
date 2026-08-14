@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 
 from .contracts import AECTransaction, AECAction
 from .runtime import assemble_transaction, execute_transaction, preprocess_scene, route_context
@@ -18,6 +18,7 @@ from .rhinomcp_transport import RhinoMCPGateway
 from .operation_models import RhinoOperationInput, dump_operations
 from .scene_query_models import RhinoSceneQuery, normalize_scene_query
 from collections import Counter
+import base64
 import os
 from pathlib import Path
 
@@ -223,6 +224,58 @@ async def rhino_verify(
 async def rhino_health() -> dict:
     """Check the Rhino MCP bridge and report latency, connection, retry, and failure counters."""
     return await _rhino_direct.health()
+
+
+@mcp.tool()
+async def rhino_viewport_state() -> dict:
+    """Return the active Rhino viewport name, camera, target, up vector, lens, and projection."""
+    return await _rhino_direct.viewport_command("viewport_get_state")
+
+
+@mcp.tool()
+async def rhino_viewport_zoom_extents() -> dict:
+    """Visibly zoom the active Rhino viewport to the extents of document geometry and return the resulting camera state."""
+    return await _rhino_direct.viewport_command("viewport_zoom_extents")
+
+
+@mcp.tool()
+async def rhino_viewport_set_camera(camera: tuple[float, float, float], target: tuple[float, float, float] | None = None, lens_mm: float | None = None) -> dict:
+    """Visibly set the active Rhino camera location, optional target, and optional 35mm lens length."""
+    params: dict = {"camera": list(camera)}
+    if target is not None: params["target"] = list(target)
+    if lens_mm is not None: params["lens_mm"] = lens_mm
+    return await _rhino_direct.viewport_command("viewport_set_camera", params)
+
+
+@mcp.tool()
+async def rhino_viewport_set_target(target: tuple[float, float, float]) -> dict:
+    """Visibly aim the active Rhino camera at an exact model-space target while preserving its location."""
+    return await _rhino_direct.viewport_command("viewport_set_target", {"target": list(target)})
+
+
+@mcp.tool()
+async def rhino_viewport_orbit(azimuth_degrees: float = 0.0, elevation_degrees: float = 0.0, target: tuple[float, float, float] | None = None) -> dict:
+    """Visibly orbit the active Rhino camera around its target (or an explicit model-space target) and return the resulting state."""
+    params: dict = {"azimuth_degrees": azimuth_degrees, "elevation_degrees": elevation_degrees}
+    if target is not None: params["target"] = list(target)
+    return await _rhino_direct.viewport_command("viewport_orbit", params)
+
+
+@mcp.tool()
+async def rhino_viewport_restore_named_view(name: str) -> dict:
+    """Visibly restore an existing Rhino named view into the active viewport."""
+    return await _rhino_direct.viewport_command("viewport_restore_named_view", {"name": name})
+
+
+@mcp.tool()
+async def rhino_viewport_capture(viewport: str = "active", width: int = 1024, height: int = 768, zoom_to_fit: bool = False) -> Image:
+    """Capture a Rhino viewport as a PNG image for visual inspection. Capture itself does not move the persistent camera."""
+    result = await _rhino_direct.viewport_command("capture_viewport", {
+        "viewport": viewport, "width": width, "height": height,
+        "show_grid": False, "show_axes": False, "show_cplane_axes": False,
+        "zoom_to_fit": zoom_to_fit,
+    })
+    return Image(data=base64.b64decode(result["image_data"], validate=True), format="png")
 
 
 @mcp.tool()

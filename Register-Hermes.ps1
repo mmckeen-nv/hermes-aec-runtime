@@ -53,6 +53,13 @@ foreach ($Name in $Profile) {
         "        - rhino_apply_operations",
         "        - rhino_verify_transaction",
         "        - rhino_health"
+        "        - rhino_viewport_state"
+        "        - rhino_viewport_zoom_extents"
+        "        - rhino_viewport_set_camera"
+        "        - rhino_viewport_set_target"
+        "        - rhino_viewport_orbit"
+        "        - rhino_viewport_restore_named_view"
+        "        - rhino_viewport_capture"
         "        - blender_scene_query"
         "        - blender_apply_operations"
         "        - blender_validate_handoff"

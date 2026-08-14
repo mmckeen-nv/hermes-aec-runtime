@@ -26,7 +26,7 @@ from .rhinomcp_mapping import (
 
 _HEADER_SIZE = 4
 _MAX_FRAME_SIZE = 64 * 1024 * 1024
-_READ_COMMANDS = {"describe_capabilities", "get_document_summary", "get_object_info", "get_objects"}
+_READ_COMMANDS = {"describe_capabilities", "get_document_summary", "get_object_info", "get_objects", "viewport_get_state", "capture_viewport"}
 
 
 class RhinoMCPTransportError(RuntimeError):
@@ -151,6 +151,25 @@ class RhinoMCPGateway:
         except Exception as exc:
             return {"status": "unavailable", "endpoint": self.transport.endpoint,
                     "error": str(exc), "latency_ms": round((perf_counter() - started) * 1000, 3)}
+
+    async def viewport_command(self, command: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Run one allowlisted native viewport command, serialized against geometry writes."""
+        allowed = {
+            "viewport_get_state", "viewport_zoom_extents", "viewport_set_camera",
+            "viewport_set_target", "viewport_orbit", "viewport_restore_named_view",
+            "capture_viewport",
+        }
+        if command not in allowed:
+            raise ValueError(f"viewport command is not allowlisted: {command}")
+        async with self._lock:
+            capabilities = await self.transport.call("describe_capabilities", {})
+            advertised = {
+                str(item.get("name")) if isinstance(item, Mapping) else str(item)
+                for item in capabilities.get("commands", [])
+            }
+            if command not in advertised:
+                raise RhinoMCPCommandError(f"active AEC RhinoMCP plugin does not advertise {command}; restart Rhino after installing the updated plugin")
+            return await self.transport.call(command, params or {})
 
     async def scene_index(self, *, page_size: int = 500, max_objects: int = 10000, cache_seconds: float = 2.0) -> dict[str, Any]:
         if page_size < 1 or page_size > 2000 or max_objects < 1:
