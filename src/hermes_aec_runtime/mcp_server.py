@@ -67,10 +67,12 @@ async def rhino_execute_python(
     script: str,
     expected_change: str,
     dry_run: bool = True,
+    idempotency_key: str | None = None,
 ) -> dict:
-    """Validate or execute a bounded Rhino Python/RhinoCommon mutation in one undo transaction. Use only __rhino_doc__ as the document handle. Returns created/deleted IDs and timing."""
+    """Validate or execute one bounded Rhino Python/RhinoCommon mutation. Use __rhino_doc__ and a unique stable idempotency_key. The sidecar serializes access, persists receipts, reconciles lost responses, and rolls back script failures."""
     return await RhinoClient().execute_python(
-        intent=intent, script=script, expected_change=expected_change, dry_run=dry_run,
+        intent=intent, script=script, expected_change=expected_change,
+        dry_run=dry_run, idempotency_key=idempotency_key,
     )
 
 
@@ -86,6 +88,12 @@ async def rhino_verify(
         names=names, layer=layer, geometry_type=geometry_type,
         include_hidden=True, limit=limit,
     )
+
+
+@mcp.tool()
+async def rhino_health() -> dict:
+    """Check the Rhino MCP bridge and report latency, connection, retry, and failure counters."""
+    return await RhinoClient().health()
 
 
 def main() -> None:

@@ -43,9 +43,9 @@ foreach ($Name in $Profile) {
         - rhino_scene_preprocessing
         - rhino_execute_python
         - rhino_verify
+        - rhino_health
 "@
     $Config = $Config.TrimEnd() + "`r`n" + $Block.TrimEnd() + "`r`n"
     Set-Content -LiteralPath $ConfigPath -Value $Config -Encoding utf8
     Write-Host "HERMES_AEC_REGISTERED profile=$Name rhino_port=$RhinoPort"
 }
-

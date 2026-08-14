@@ -46,6 +46,8 @@ The registration script adds the sidecar to both deployed Windows AEC profiles a
 
 - Every mutation is represented by an `AECTransaction` before execution.
 - Every execution returns an `ExecutionReceipt` with evidence and timing.
+- Rhino calls are serialized; safe reads reconnect automatically.
+- Mutations use stable idempotency keys and document-persisted receipts, so a lost response cannot silently duplicate geometry.
 - `dry_run` defaults to true.
 - The sidecar never falls back to foreground UI automation.
 - Host-specific behavior lives behind adapters; model prompts do not contain raw UI choreography.
