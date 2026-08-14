@@ -35,7 +35,7 @@ if (-not $SkipProfileCheck) {
         $ProfileConfig = Join-Path $env:LOCALAPPDATA "hermes\profiles\$Name\config.yaml"
         if (-not (Test-Path -LiteralPath $ProfileConfig)) { continue }
         $ProfileText = Get-Content -Raw -LiteralPath $ProfileConfig
-        if ($ProfileText -notmatch '(?m)^  # BEGIN HERMES AEC SIDECAR \(managed\)$' -or
+        if ($ProfileText -notmatch '(?m)^  # BEGIN HERMES AEC SIDECAR \(managed\)\r?$' -or
             $ProfileText -notmatch [regex]::Escape($Server.Replace('\', '/'))) {
             $Failures.Add("Hermes profile is not registered to this runtime: $Name")
         }
