@@ -1,8 +1,27 @@
 from pathlib import Path
+import os
+import shutil
+import subprocess
 
 
 ROOT = Path(__file__).parents[1]
 TOOLS = {
+    "aec_workflow_plan",
+    "aec_run_workflow",
+    "route_aec_request",
+    "rhino_health",
+    "rhino_scene_query",
+    "rhino_apply_operations",
+    "rhino_verify_transaction",
+    "blender_scene_query",
+    "blender_apply_operations",
+    "blender_validate_handoff",
+    "blender_proof_and_recovery",
+    "workflow_memory_promote",
+    "workflow_memory_query",
+    "flight_recorder_record",
+}
+SKILL_RHINO_TOOLS = {
     "aec_workflow_plan",
     "aec_run_workflow",
     "route_aec_request",
@@ -34,6 +53,34 @@ def test_packaging_has_versioned_config_and_lifecycle_commands():
 
 def test_skills_name_only_the_typed_rhino_tools():
     skill_text = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "skills").glob("*/SKILL.md"))
-    for tool in TOOLS:
+    for tool in SKILL_RHINO_TOOLS:
         assert tool in skill_text
     assert "rhino_execute_python" not in skill_text
+
+
+def test_registration_is_atomic_idempotent_and_preserves_following_yaml(tmp_path):
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if not powershell:
+        return
+    profile = "packaging-test"
+    profile_root = tmp_path / "hermes" / "profiles" / profile
+    profile_root.mkdir(parents=True)
+    config = profile_root / "config.yaml"
+    config.write_text(
+        "model:\n  provider: test\n\nmcp_servers:\n  existing:\n    command: existing.exe\n\ntools:\n  custom: keep-me\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["LOCALAPPDATA"] = str(tmp_path)
+    command = [
+        powershell, "-NoProfile", "-File", str(ROOT / "Register-Hermes.ps1"),
+        "-Profile", profile, "-RhinoPort", "10500",
+    ]
+    subprocess.run(command, check=True, env=env, capture_output=True, text=True)
+    subprocess.run(command, check=True, env=env, capture_output=True, text=True)
+    updated = config.read_text(encoding="utf-8-sig")
+    assert updated.count("BEGIN HERMES AEC SIDECAR") == 1
+    assert updated.index("  hermes_aec:") < updated.index("tools:")
+    assert "custom: keep-me" in updated
+    backups = list((profile_root / ".hermes-aec-backups").glob("config.*.yaml"))
+    assert len(backups) == 2

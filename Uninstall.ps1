@@ -5,13 +5,26 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+function Set-AtomicText([string]$Path, [string]$Value) {
+    $Temporary = Join-Path (Split-Path -Parent $Path) ("." + [IO.Path]::GetFileName($Path) + "." + [guid]::NewGuid().ToString("N") + ".tmp")
+    try {
+        Set-Content -LiteralPath $Temporary -Value $Value -Encoding utf8NoBOM
+        Move-Item -LiteralPath $Temporary -Destination $Path -Force
+    } finally {
+        if (Test-Path -LiteralPath $Temporary) { Remove-Item -LiteralPath $Temporary -Force }
+    }
+}
 foreach ($Name in $Profile) {
     $ConfigPath = Join-Path $env:LOCALAPPDATA "hermes\profiles\$Name\config.yaml"
     if (-not (Test-Path -LiteralPath $ConfigPath)) { continue }
     $Config = Get-Content -Raw -LiteralPath $ConfigPath
     $Config = [regex]::Replace($Config, '(?ms)^  # BEGIN HERMES AEC SIDECAR \(managed\)\r?\n.*?^  # END HERMES AEC SIDECAR \(managed\)\r?\n?', '')
     if ($PSCmdlet.ShouldProcess($ConfigPath, "Remove managed Hermes AEC registration")) {
-        Set-Content -LiteralPath $ConfigPath -Value ($Config.TrimEnd() + "`r`n") -Encoding utf8
+        $BackupDirectory = Join-Path (Split-Path -Parent $ConfigPath) ".hermes-aec-backups"
+        New-Item -ItemType Directory -Force -Path $BackupDirectory | Out-Null
+        $Backup = Join-Path $BackupDirectory ("config.pre-uninstall." + (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffffffZ") + ".yaml")
+        Copy-Item -LiteralPath $ConfigPath -Destination $Backup
+        Set-AtomicText -Path $ConfigPath -Value ($Config.TrimEnd() + "`r`n")
     }
 }
 if (-not $KeepEnvironment) {
