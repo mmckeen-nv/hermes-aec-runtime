@@ -14,6 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from .blender_operations import compile_blender_transaction
+from .host_contract import blocked_stale, completed_receipt, content_hash, finalize_scene, lifecycle_receipt, recovery_plan as common_recovery_plan
 
 
 class BlenderUnavailable(RuntimeError): pass
@@ -87,42 +88,50 @@ class BlenderGateway:
                 "kind": str(raw.get("type", "UNKNOWN")), "layer": str(raw.get("collection", "Scene Collection")),
                 "properties": {k: raw[k] for k in ("location", "rotation", "scale", "bounds", "materials") if k in raw},
             }
-            item["content_hash"] = sha256(json.dumps(item, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            item["content_hash"] = content_hash(item)
             objects.append(item)
-        canonical = json.dumps(objects, sort_keys=True, separators=(",", ":"))
-        return {
-            "schema_version": "1.0", "host": "blender",
-            "document_id": str(payload.get("document_id", payload.get("file", "unsaved"))),
-            "units": str(payload.get("units", "meters")), "objects": objects,
-            "document_revision": sha256(canonical.encode()).hexdigest(),
-        }
+        return finalize_scene(host="blender", document_id=str(payload.get("document_id", payload.get("file", "unsaved"))),
+                              units=str(payload.get("units", "meters")), objects=objects)
 
-    async def execute(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool = False) -> dict[str, Any]:
+    async def execute(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool = False, document_revision: str | None = None) -> dict[str, Any]:
         if not idempotency_key.strip(): raise ValueError("idempotency_key is required")
         compiled = compile_blender_transaction(operations)
+        fingerprint = content_hash({"intent": intent, "transaction": compiled.fingerprint})
         transaction_id = str(uuid5(NAMESPACE_URL, idempotency_key))
         prior = self._receipts.get(idempotency_key)
         if prior:
-            if prior["fingerprint"] == compiled.fingerprint: return {**prior, "replayed": True}
-            return {"status": "blocked", "transaction_id": transaction_id, "error": "idempotency key is bound to another payload", "prior_receipt": prior}
+            if prior["fingerprint"] == fingerprint: return {**prior, "replayed": True}
+            return lifecycle_receipt(host="blender", transaction_id=transaction_id, status="blocked", fingerprint=fingerprint, error="idempotency key is bound to another payload", prior_receipt=prior)
         if dry_run:
-            return {"status": "validated", "transaction_id": transaction_id, "fingerprint": compiled.fingerprint, "normalized": compiled.normalized}
+            return lifecycle_receipt(host="blender", transaction_id=transaction_id, status="validated", fingerprint=fingerprint, normalized=compiled.normalized)
         async with self._lock:
             # Re-check after acquiring the mutation lock. Another coroutine may
             # have completed while this one was waiting.
             prior = self._receipts.get(idempotency_key)
             if prior:
-                if prior["fingerprint"] == compiled.fingerprint: return {**prior, "replayed": True, "concurrent_replay": True}
-                return {"status": "blocked", "transaction_id": transaction_id, "error": "idempotency key is bound to another payload", "prior_receipt": prior}
+                if prior["fingerprint"] == fingerprint: return {**prior, "replayed": True, "concurrent_replay": True}
+                return lifecycle_receipt(host="blender", transaction_id=transaction_id, status="blocked", fingerprint=fingerprint, error="idempotency key is bound to another payload", prior_receipt=prior)
             try:
+                before = await self.scene_preprocessing_unlocked()
+                if document_revision is not None and before["document_revision"] != document_revision:
+                    return blocked_stale(host="blender", transaction_id=transaction_id, expected=document_revision, current=before["document_revision"], fingerprint=fingerprint)
                 result = await self._call("execute_blender_code", {"code": compiled.script})
+                after = await self.scene_preprocessing_unlocked()
             except Exception as exc:
-                receipt = {"status": "unknown", "transaction_id": transaction_id, "fingerprint": compiled.fingerprint, "error": str(exc), "recovery": "Inspect and reconcile the scene; do not issue another mutation blindly."}
+                receipt = lifecycle_receipt(host="blender", transaction_id=transaction_id, status="unknown", fingerprint=fingerprint, error=str(exc), recovery="Inspect and reconcile the scene; do not issue another mutation blindly.")
                 self._receipts[idempotency_key] = receipt
                 return receipt
-            receipt = {"schema_version": "1.0", "host": "blender", "status": "completed", "transaction_id": transaction_id, "intent": intent, "fingerprint": compiled.fingerprint, "result": result}
+            receipt = completed_receipt(host="blender", transaction_id=transaction_id, intent=intent, fingerprint=fingerprint, before=before, after=after, result=result)
             self._receipts[idempotency_key] = receipt
         return receipt
+
+    async def scene_preprocessing_unlocked(self) -> dict[str, Any]:
+        payload = await self._call("get_scene_info", {})
+        objects = []
+        for raw in payload.get("objects", []):
+            item = {"id": str(raw.get("id") or raw.get("name")), "name": str(raw.get("name", "")), "kind": str(raw.get("type", "UNKNOWN")), "layer": str(raw.get("collection", "Scene Collection")), "properties": {k: raw[k] for k in ("location", "rotation", "scale", "bounds", "materials") if k in raw}}
+            item["content_hash"] = content_hash(item); objects.append(item)
+        return finalize_scene(host="blender", document_id=str(payload.get("document_id", payload.get("file", "unsaved"))), units=str(payload.get("units", "meters")), objects=objects)
 
 
 def validate_handoff_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -147,7 +156,4 @@ def validate_handoff_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def recovery_plan(receipt: dict[str, Any]) -> dict[str, Any]:
-    status = receipt.get("status")
-    if status == "unknown": return {"action": "reconcile", "steps": ["Re-index the Blender scene", "Check intended outputs", "Retry only with the same idempotency key"]}
-    if status == "failed": return {"action": "rollback", "steps": ["Undo the transaction once", "Re-index and verify", "Correct the operation and use a new key"]}
-    return {"action": "verify", "steps": ["Re-index changed objects", "Validate handoff IDs and rendered outputs"]}
+    return common_recovery_plan(receipt, "Blender")

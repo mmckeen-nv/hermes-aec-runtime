@@ -34,7 +34,7 @@ def test_mutation_receipt_is_idempotent_and_payload_bound():
     kwargs = {"intent": "organize", "operations": [{"op": "ensure_collection", "name": "AEC"}], "idempotency_key": "demo-1"}
     first = asyncio.run(client.execute(**kwargs)); second = asyncio.run(client.execute(**kwargs))
     assert first["status"] == "completed" and second["replayed"] is True
-    assert len(state["calls"]) == 1
+    assert [call[0] for call in state["calls"]] == ["get_scene_info", "execute_blender_code", "get_scene_info"]
     blocked = asyncio.run(client.execute(intent="other", operations=[{"op": "ensure_collection", "name": "Other"}], idempotency_key="demo-1"))
     assert blocked["status"] == "blocked"
 
@@ -65,5 +65,5 @@ def test_handoff_manifest_requires_ids_layers_units_and_export():
 
 def test_recovery_is_conservative():
     assert recovery_plan({"status": "unknown"})["action"] == "reconcile"
-    assert recovery_plan({"status": "failed"})["action"] == "rollback"
+    assert recovery_plan({"status": "failed"})["action"] == "verify_rollback"
     assert recovery_plan({"status": "completed"})["action"] == "verify"

@@ -13,6 +13,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from .freecad_operations import compile_freecad_transaction
+from .host_contract import blocked_stale, completed_receipt, content_hash, finalize_scene, lifecycle_receipt, recovery_plan as common_recovery_plan
 
 
 class FreeCADTransport(Protocol):
@@ -53,7 +54,10 @@ class FreeCADGateway:
 
     async def scene_query(self) -> dict[str, Any]:
         async with self._lock:
-            raw = await asyncio.wait_for(self.transport_factory().call("get_document_info", {}), self.timeout_seconds)
+            return await self._scene_query_unlocked()
+
+    async def _scene_query_unlocked(self) -> dict[str, Any]:
+        raw = await asyncio.wait_for(self.transport_factory().call("get_document_info", {}), self.timeout_seconds)
         source = raw.get("objects", raw.get("document", {}).get("objects", []))
         objects = []
         for item in source:
@@ -66,34 +70,40 @@ class FreeCADGateway:
                 "visible": bool(item.get("visible", item.get("Visibility", True))),
                 "bounds": item.get("bounds") or item.get("BoundBox"),
             }
-            normalized["content_hash"] = sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+            normalized["content_hash"] = content_hash(normalized)
             objects.append(normalized)
-        return {"schema_version":"freecad-scene-index/1.0", "host":"freecad", "document":raw.get("document", {}), "objects":objects, "count":len(objects)}
+        document = raw.get("document", {})
+        return finalize_scene(host="freecad", document_id=str(document.get("id") or document.get("file") or document.get("name") or "unsaved"),
+                              units=str(document.get("units") or raw.get("units") or "meters"), objects=objects, document=document)
 
-    async def execute(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool = False) -> dict[str, Any]:
+    async def execute(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool = False, document_revision: str | None = None) -> dict[str, Any]:
         if not idempotency_key.strip(): raise ValueError("idempotency_key is required")
         compiled = compile_freecad_transaction(operations); txid = str(uuid5(NAMESPACE_URL, idempotency_key))
+        fingerprint = content_hash({"intent": intent, "transaction": compiled.fingerprint})
         prior = self._receipts.get(idempotency_key)
         if prior:
-            if prior["fingerprint"] == compiled.fingerprint: return {**prior, "replayed":True}
-            return {"status":"blocked", "transaction_id":txid, "error":"idempotency key is bound to another payload"}
-        if dry_run: return {"status":"validated", "transaction_id":txid, "fingerprint":compiled.fingerprint, "normalized":compiled.normalized}
+            if prior["fingerprint"] == fingerprint: return {**prior, "replayed":True}
+            return lifecycle_receipt(host="freecad", transaction_id=txid, status="blocked", fingerprint=fingerprint, error="idempotency key is bound to another payload", prior_receipt=prior)
+        if dry_run: return lifecycle_receipt(host="freecad", transaction_id=txid, status="validated", fingerprint=fingerprint, normalized=compiled.normalized)
         async with self._lock:
             prior = self._receipts.get(idempotency_key)
             if prior:
-                if prior["fingerprint"] == compiled.fingerprint: return {**prior, "replayed":True, "concurrent_replay":True}
-                return {"status":"blocked", "transaction_id":txid, "error":"idempotency key is bound to another payload", "prior_receipt":prior}
-            try: result = await asyncio.wait_for(self.transport_factory().call("execute_code", {"code":compiled.script}), self.timeout_seconds)
+                if prior["fingerprint"] == fingerprint: return {**prior, "replayed":True, "concurrent_replay":True}
+                return lifecycle_receipt(host="freecad", transaction_id=txid, status="blocked", fingerprint=fingerprint, error="idempotency key is bound to another payload", prior_receipt=prior)
+            try:
+                before = await self._scene_query_unlocked()
+                if document_revision is not None and before["document_revision"] != document_revision:
+                    return blocked_stale(host="freecad", transaction_id=txid, expected=document_revision, current=before["document_revision"], fingerprint=fingerprint)
+                result = await asyncio.wait_for(self.transport_factory().call("execute_code", {"code":compiled.script}), self.timeout_seconds)
+                after = await self._scene_query_unlocked()
             except Exception as exc:
-                receipt = {"status":"unknown", "transaction_id":txid, "fingerprint":compiled.fingerprint, "error":str(exc), "recovery":"Inspect and reconcile the document; do not issue another mutation blindly."}
+                receipt = lifecycle_receipt(host="freecad", transaction_id=txid, status="unknown", fingerprint=fingerprint, error=str(exc), recovery="Inspect and reconcile the document; do not issue another mutation blindly.")
                 self._receipts[idempotency_key] = receipt
                 return receipt
-            receipt = {"schema_version":"1.0", "host":"freecad", "status":"completed", "transaction_id":txid, "intent":intent, "fingerprint":compiled.fingerprint, "result":result}
+            receipt = completed_receipt(host="freecad", transaction_id=txid, intent=intent, fingerprint=fingerprint, before=before, after=after, result=result)
             self._receipts[idempotency_key] = receipt
         return receipt
 
 
 def freecad_recovery_plan(receipt: dict[str, Any]) -> dict[str, Any]:
-    if receipt.get("status") == "unknown": return {"action":"reconcile", "steps":["Query the active document", "Check intended labels and bounds", "Retry only with the same idempotency key"]}
-    if receipt.get("status") == "failed": return {"action":"verify_rollback", "steps":["Confirm the FreeCAD transaction aborted", "Re-query the document"]}
-    return {"action":"verify", "steps":["Re-query changed objects", "Check shape validity, labels, bounds, and units"]}
+    return common_recovery_plan(receipt, "FreeCAD")
