@@ -56,6 +56,13 @@ def test_dry_run_does_not_touch_transport():
     assert result["status"] == "validated" and not state["calls"]
 
 
+def test_stale_revision_blocks_before_blender_mutation():
+    state = {"calls": []}
+    result = asyncio.run(gateway(state).execute(intent="edit", operations=[{"op":"ensure_collection","name":"AEC"}], idempotency_key="stale-b", document_revision="stale"))
+    assert result["status"] == "blocked"
+    assert [name for name, _ in state["calls"]] == ["get_scene_info"]
+
+
 def test_handoff_manifest_requires_ids_layers_units_and_export():
     valid = validate_handoff_manifest({"schema_version": "1.0", "source_host": "rhino", "units": "millimeters", "export_path": "house.glb", "objects": [{"rhino_id": "guid-1", "layer": "Walls"}]})
     assert valid == {"valid": True, "errors": [], "object_count": 1, "unit_scale_to_meters": .001}

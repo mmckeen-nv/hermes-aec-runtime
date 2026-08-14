@@ -51,7 +51,14 @@ def test_lost_response_is_unknown_and_requires_reconciliation():
     assert freecad_recovery_plan(receipt)["action"] == "reconcile"
 
 
+def test_stale_revision_blocks_before_freecad_mutation():
+    transport=FakeTransport(); gateway=FreeCADGateway(lambda:transport)
+    receipt=asyncio.run(gateway.execute(intent="wall", operations=[{"op":"create_box","id":"w","length":1,"width":1,"height":1}], idempotency_key="stale-f", document_revision="stale"))
+    assert receipt["status"] == "blocked"
+    assert [name for name, _ in transport.calls] == ["get_document_info"]
+
+
 def test_orchestrator_builds_freecad_plan_with_freecad_compiler():
     plan = build_plan("Build a FreeCAD wall", [{"op":"create_box","id":"wall","length":4,"width":.2,"height":3}], active_host="freecad")
     assert plan.route.host == "freecad"
-    assert plan.normalized_transaction[0]["op"] == "create_box"
+    assert plan.normalized_transaction["operations"][0]["op"] == "create_box"
