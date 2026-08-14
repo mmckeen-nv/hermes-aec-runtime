@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Point3 = tuple[float, float, float]
 Target = str
+ColorChannel = Annotated[int, Field(ge=0, le=255)]
+ObjectColor = tuple[ColorChannel, ColorChannel, ColorChannel] | tuple[ColorChannel, ColorChannel, ColorChannel, ColorChannel]
 
 
 class _Operation(BaseModel):
@@ -80,7 +82,10 @@ class SetAttributes(_Operation):
     targets: list[Target] = Field(min_length=1)
     name: str | None = None
     layer: str | None = None
-    color: tuple[int, int, int] | None = None
+    color: ObjectColor | None = Field(
+        default=None,
+        description="Object RGB or RGBA color as 3 or 4 integer channels from 0 to 255.",
+    )
     material_index: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
