@@ -55,6 +55,15 @@ def test_packaging_has_versioned_config_and_lifecycle_commands():
     plugin_installer = (ROOT / "Install-RhinoMCP.ps1").read_text(encoding="utf-8")
     assert "ca441fe8-afc4-43a4-bee5-53e65030d229" in plugin_installer
     assert "yak.exe" not in plugin_installer.casefold()
+    doctor = (ROOT / "Doctor.ps1").read_text(encoding="utf-8")
+    for contract_value in (
+        "AEC RhinoMCP ($PluginGuid)",
+        "aec-rhinomcp.rhp",
+        "hermes-aec-install.json",
+        "mmckeen-nv/aec-rhinomcp",
+    ):
+        assert contract_value in plugin_installer
+        assert contract_value in doctor
 
 
 def test_windows_scripts_are_compatible_with_windows_powershell_51():
