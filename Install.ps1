@@ -12,18 +12,40 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
 $Runtime = Join-Path $Root ".runtime"
-$Python = Get-Command python -ErrorAction Stop
+
+function Test-CompatiblePython([string]$Candidate) {
+    if (-not $Candidate -or -not (Test-Path -LiteralPath $Candidate)) { return $false }
+    $VersionText = & $Candidate -c "import sys; print('.'.join(map(str, sys.version_info[:3])))" 2>$null
+    return ($LASTEXITCODE -eq 0 -and $VersionText -and [version]$VersionText -ge [version]"3.11")
+}
+
+# Hermes Desktop already ships a real Python runtime. Prefer it over PATH, where Windows' optional
+# Microsoft Store app-execution alias can masquerade as python.exe but cannot execute anything.
+$HermesPython = Join-Path $env:LOCALAPPDATA "hermes\hermes-agent\venv\Scripts\python.exe"
+$PythonSource = if (Test-CompatiblePython $HermesPython) { $HermesPython } else { $null }
+if (-not $PythonSource) {
+    $PathPython = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($PathPython -and (Test-CompatiblePython $PathPython.Source)) { $PythonSource = $PathPython.Source }
+}
+if (-not $PythonSource) {
+    $HermesUv = Join-Path $env:LOCALAPPDATA "hermes\bin\uv.exe"
+    $UvCommand = Get-Command uv.exe -ErrorAction SilentlyContinue
+    $Uv = if (Test-Path -LiteralPath $HermesUv) { $HermesUv } elseif ($UvCommand) { $UvCommand.Source } else { $null }
+    if (-not $Uv) { throw "Hermes' managed Python and uv runtimes are missing. Repair Hermes Desktop, then rerun deployment." }
+    Write-Host "Installing an isolated Python 3.12 runtime with Hermes uv."
+    & $Uv python install 3.12
+    if ($LASTEXITCODE) { throw "Hermes uv could not install Python 3.12." }
+    $PythonSource = (& $Uv python find 3.12).Trim()
+    if ($LASTEXITCODE -or -not (Test-CompatiblePython $PythonSource)) { throw "Hermes uv installed Python but it could not be validated." }
+}
 
 if (-not $SkipRhinoMCPInstall) {
     & (Join-Path $Root "Install-RhinoMCP.ps1") -Version $RhinoMCPVersion
 }
 
-if ([version](& $Python.Source -c "import sys; print('.'.join(map(str, sys.version_info[:3])))") -lt [version]"3.11") {
-    throw "Python 3.11 or newer is required."
-}
-
 if (-not (Test-Path -LiteralPath (Join-Path $Root ".venv\Scripts\python.exe"))) {
-    & $Python.Source -m venv (Join-Path $Root ".venv")
+    & $PythonSource -m venv (Join-Path $Root ".venv")
+    if ($LASTEXITCODE) { throw "Could not create the Hermes AEC runtime environment with $PythonSource." }
 }
 $VenvPython = Join-Path $Root ".venv\Scripts\python.exe"
 & $VenvPython -m pip install --upgrade pip
