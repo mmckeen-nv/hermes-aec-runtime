@@ -71,9 +71,9 @@ if (-not (Test-Path -LiteralPath $PluginPath)) {
     } catch { $Failures.Add("AEC RhinoMCP installation metadata is invalid") }
 }
 $RegistryPath = "HKCU:\Software\McNeel\Rhinoceros\8.0\Plug-ins\$PluginGuid"
-$RegisteredPlugin = Get-ItemPropertyValue -Path (Join-Path $RegistryPath "PlugIn") -Name "FileName" -ErrorAction SilentlyContinue
+$RegisteredPlugin = Get-ItemPropertyValue -Path $RegistryPath -Name "FileName" -ErrorAction SilentlyContinue
 if (-not $RegisteredPlugin -or $RegisteredPlugin -ne $PluginPath) {
-    $Failures.Add("AEC RhinoMCP is not registered to its managed plugin path; rerun Install-RhinoMCP.ps1")
+    $Failures.Add("AEC RhinoMCP root discovery registration is missing; rerun Install-RhinoMCP.ps1")
 }
 $RegisteredCommands = Join-Path $RegistryPath "CommandList"
 foreach ($Command in @("aecmcpstart", "aecmcpstop", "aecmcptest", "aecmcpversion")) {

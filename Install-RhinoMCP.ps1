@@ -57,6 +57,7 @@ New-Item -Path $RegistryPath -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "LoadMode" -Value 2 -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "Type" -Value 16 -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "Name" -Value "aec-rhinomcp" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path $RegistryPath -Name "FileName" -Value $Plugin -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "EnglishName" -Value "aec-rhinomcp" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "IsDotNETPlugIn" -Value 1 -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "Description" -Value "Hardened AEC fork of RhinoMCP" -PropertyType String -Force | Out-Null
@@ -77,5 +78,5 @@ $Metadata = @{
 [IO.File]::WriteAllText((Join-Path $Target "hermes-aec-install.json"), $Metadata + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
 
 Write-Host "RHINOMCP_PLUGIN_READY distribution=mmckeen-nv/aec-rhinomcp version=$Version guid=$PluginGuid plugin=$Plugin"
-Write-Host "RHINOMCP_COMMANDS_REGISTERED commands=AECMCPStart,AECMCPStop,AECMCPTest,AECMCPVersion"
+Write-Host "RHINOMCP_COMMANDS_REGISTERED discovery=root-filename commands=AECMCPStart,AECMCPStop,AECMCPTest,AECMCPVersion"
 Write-Host "Restart Rhino and run AECMCPStart. The verified listener must be 127.0.0.1:1999."
