@@ -1,13 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$Version = "0.4.0-aec.2",
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [string]$PluginRoot = (Join-Path $env:APPDATA "McNeel\Rhinoceros\8.0\Plug-ins")
 )
 
 $ErrorActionPreference = "Stop"
 $PluginGuid = "ca441fe8-afc4-43a4-bee5-53e65030d229"
 $Archive = Join-Path $PSScriptRoot "vendor\aec-rhinomcp-$Version-windows.zip"
-$PluginRoot = Join-Path $env:APPDATA "McNeel\Rhinoceros\8.0\Plug-ins"
 $Target = Join-Path $PluginRoot "AEC RhinoMCP ($PluginGuid)"
 
 if (-not (Test-Path -LiteralPath $Archive)) {
@@ -46,6 +46,14 @@ $Plugin = Join-Path $Target "aec-rhinomcp.rhp"
 if (-not (Test-Path -LiteralPath $Plugin)) {
     throw "AEC RhinoMCP plug-in was not installed at $Plugin."
 }
+$Metadata = @{
+    schema_version = 1
+    distribution = "mmckeen-nv/aec-rhinomcp"
+    version = $Version
+    guid = $PluginGuid
+    plugin = $Plugin
+} | ConvertTo-Json
+[IO.File]::WriteAllText((Join-Path $Target "hermes-aec-install.json"), $Metadata + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
 
 Write-Host "RHINOMCP_PLUGIN_READY distribution=mmckeen-nv/aec-rhinomcp version=$Version guid=$PluginGuid plugin=$Plugin"
 Write-Host "Restart Rhino and run AECMCPStart. The verified listener must be 127.0.0.1:1999."

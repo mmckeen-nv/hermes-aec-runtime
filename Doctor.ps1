@@ -3,7 +3,8 @@ param(
     [ValidateRange(1024, 65535)][int]$RhinoPort = 1999,
     [switch]$AllowRhinoOffline,
     [string[]]$Profile = @("cliff-house-modifications-windows", "cliff-house-full-build-windows"),
-    [switch]$SkipProfileCheck
+    [switch]$SkipProfileCheck,
+    [string]$PluginRoot = (Join-Path $env:APPDATA "McNeel\Rhinoceros\8.0\Plug-ins")
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,14 +53,27 @@ try {
 } catch { $RhinoOnline = $false }
 if (-not $RhinoOnline -and -not $AllowRhinoOffline) { $Failures.Add("Rhino MCP is not listening on port $RhinoPort") }
 
-$PluginManifest = Get-ChildItem -LiteralPath (Join-Path $env:APPDATA "McNeel\Rhinoceros\packages\8.0\rhinomcp") -Filter manifest.yml -File -Recurse -ErrorAction SilentlyContinue |
-    Sort-Object FullName -Descending | Select-Object -First 1
-if (-not $PluginManifest) { $Failures.Add("RhinoMCP plugin is not installed; run Install-RhinoMCP.ps1") }
+$PluginGuid = "ca441fe8-afc4-43a4-bee5-53e65030d229"
+$PluginDirectory = Join-Path $PluginRoot "AEC RhinoMCP ($PluginGuid)"
+$PluginPath = Join-Path $PluginDirectory "aec-rhinomcp.rhp"
+$PluginMetadataPath = Join-Path $PluginDirectory "hermes-aec-install.json"
+$PluginVersion = "unknown"
+if (-not (Test-Path -LiteralPath $PluginPath)) {
+    $Failures.Add("AEC RhinoMCP plugin is not installed at the managed path; run Install-RhinoMCP.ps1")
+} elseif (-not (Test-Path -LiteralPath $PluginMetadataPath)) {
+    $Failures.Add("AEC RhinoMCP installation metadata is missing; rerun Install-RhinoMCP.ps1")
+} else {
+    try {
+        $PluginMetadata = Get-Content -Raw -LiteralPath $PluginMetadataPath | ConvertFrom-Json
+        if ($PluginMetadata.guid -ne $PluginGuid -or $PluginMetadata.distribution -ne "mmckeen-nv/aec-rhinomcp") {
+            $Failures.Add("AEC RhinoMCP installation metadata does not match the managed plugin")
+        } else { $PluginVersion = $PluginMetadata.version }
+    } catch { $Failures.Add("AEC RhinoMCP installation metadata is invalid") }
+}
 
 if ($Failures.Count -gt 0) {
     $Failures | ForEach-Object { Write-Error "HERMES_AEC_DOCTOR_FAIL $_" }
     exit 1
 }
-$PluginVersion = if ($PluginManifest) { Split-Path -Leaf (Split-Path -Parent $PluginManifest.FullName) } else { "missing" }
 $OwnerPid = if ($RhinoOwner) { $RhinoOwner.Id } else { 0 }
 Write-Host "HERMES_AEC_DOCTOR_OK config_version=2 rhino_online=$($RhinoOnline.ToString().ToLower()) rhino_pid=$OwnerPid rhinomcp_version=$PluginVersion"
