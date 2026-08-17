@@ -18,7 +18,7 @@ function Set-AtomicText([string]$Path, [string]$Value) {
     $Directory = Split-Path -Parent $Path
     $Temporary = Join-Path $Directory ("." + [IO.Path]::GetFileName($Path) + "." + [guid]::NewGuid().ToString("N") + ".tmp")
     try {
-        Set-Content -LiteralPath $Temporary -Value $Value -Encoding utf8NoBOM
+        [IO.File]::WriteAllText($Temporary, $Value, (New-Object Text.UTF8Encoding($false)))
         Move-Item -LiteralPath $Temporary -Destination $Path -Force
     } finally {
         if (Test-Path -LiteralPath $Temporary) { Remove-Item -LiteralPath $Temporary -Force }

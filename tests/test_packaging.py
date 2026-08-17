@@ -57,6 +57,12 @@ def test_packaging_has_versioned_config_and_lifecycle_commands():
     assert "yak.exe" not in plugin_installer.casefold()
 
 
+def test_windows_scripts_are_compatible_with_windows_powershell_51():
+    for script in ROOT.rglob("*.ps1"):
+        content = script.read_text(encoding="utf-8")
+        assert "utf8NoBOM" not in content, f"PowerShell 7-only encoding in {script}"
+
+
 def test_skills_name_only_the_typed_rhino_tools():
     skill_text = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "skills").glob("*/SKILL.md"))
     for tool in SKILL_RHINO_TOOLS:
