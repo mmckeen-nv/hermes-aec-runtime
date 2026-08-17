@@ -63,6 +63,15 @@ def test_windows_scripts_are_compatible_with_windows_powershell_51():
         assert "utf8NoBOM" not in content, f"PowerShell 7-only encoding in {script}"
 
 
+def test_installer_bootstraps_python_without_trusting_the_windows_store_alias():
+    installer = (ROOT / "Install.ps1").read_text(encoding="utf-8")
+    assert "hermes\\hermes-agent\\venv\\Scripts\\python.exe" in installer
+    assert "hermes\\bin\\uv.exe" in installer
+    assert "uv.exe" in installer
+    assert "python install 3.12" in installer
+    assert "Get-Command python.exe -ErrorAction SilentlyContinue" in installer
+
+
 def test_skills_name_only_the_typed_rhino_tools():
     skill_text = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "skills").glob("*/SKILL.md"))
     for tool in SKILL_RHINO_TOOLS:
