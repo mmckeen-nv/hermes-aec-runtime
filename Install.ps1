@@ -5,6 +5,7 @@ param(
     [ValidateRange(1024, 65535)][int]$LegacyRhinoPort = 10500,
     [switch]$DisableLegacyFallback,
     [switch]$EnableLegacyFallback,
+    [switch]$EnableBlender,
     [switch]$SkipRhinoMCPInstall,
     [string]$RhinoMCPVersion = "0.4.0-aec.2"
 )
@@ -78,8 +79,8 @@ $Config | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Runtime
 } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $Runtime "install-manifest.json") -Encoding utf8
 
 if (-not $SkipHermesRegistration) {
-    & (Join-Path $Root "Register-Hermes.ps1") -RhinoPort $RhinoPort -LegacyRhinoPort $LegacyRhinoPort -DisableLegacyFallback:$DisableLegacyFallback -EnableLegacyFallback:$EnableLegacyFallback
+    & (Join-Path $Root "Register-Hermes.ps1") -RhinoPort $RhinoPort -LegacyRhinoPort $LegacyRhinoPort -DisableLegacyFallback:$DisableLegacyFallback -EnableLegacyFallback:$EnableLegacyFallback -EnableBlender:$EnableBlender
 }
 & (Join-Path $Root "Doctor.ps1") -RhinoPort $RhinoPort -AllowRhinoOffline
-Write-Host "HERMES_AEC_INSTALLED config_version=2 rhinomcp_port=$RhinoPort legacy_fallback=$(($EnableLegacyFallback -and -not $DisableLegacyFallback).ToString().ToLower())"
+Write-Host "HERMES_AEC_INSTALLED config_version=2 rhinomcp_port=$RhinoPort legacy_fallback=$(($EnableLegacyFallback -and -not $DisableLegacyFallback).ToString().ToLower()) blender=$($EnableBlender.ToString().ToLower())"
 Write-Host "Restart Hermes and Rhino. In Rhino run AECMCPStart, then use a demo shortcut."

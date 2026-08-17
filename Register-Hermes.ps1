@@ -4,13 +4,17 @@ param(
     [ValidateRange(1024, 65535)][int]$RhinoPort = 1999,
     [ValidateRange(1024, 65535)][int]$LegacyRhinoPort = 10500,
     [switch]$DisableLegacyFallback,
-    [switch]$EnableLegacyFallback
+    [switch]$EnableLegacyFallback,
+    [switch]$EnableBlender
 )
 
 $ErrorActionPreference = "Stop"
 $Server = Join-Path $PSScriptRoot ".venv\Scripts\hermes-aec-mcp.exe"
 if (-not (Test-Path -LiteralPath $Server)) { throw "Run Install.ps1 first." }
 $ServerYaml = $Server.Replace("\", "/")
+$BlenderCommand = Join-Path $env:LOCALAPPDATA "hermes\integrations\blender-mcp\blender-mcp.cmd"
+$BlenderCommandYaml = $BlenderCommand.Replace("\", "/")
+if ($EnableBlender -and -not (Test-Path -LiteralPath $BlenderCommand)) { throw "Blender was enabled but its managed MCP launcher is missing: $BlenderCommand" }
 $Begin = "  # BEGIN HERMES AEC SIDECAR (managed)"
 $End = "  # END HERMES AEC SIDECAR (managed)"
 
@@ -60,14 +64,18 @@ foreach ($Name in $Profile) {
         "        - rhino_viewport_orbit"
         "        - rhino_viewport_restore_named_view"
         "        - rhino_viewport_capture"
-        "        - blender_scene_query"
-        "        - blender_apply_operations"
-        "        - blender_validate_handoff"
-        "        - blender_proof_and_recovery"
         "        - workflow_memory_promote"
         "        - workflow_memory_query"
         "        - flight_recorder_record"
     )
+    if ($EnableBlender) {
+        $ToolLines += @(
+            "        - blender_scene_query"
+            "        - blender_apply_operations"
+            "        - blender_validate_handoff"
+            "        - blender_proof_and_recovery"
+        )
+    }
     $ToolBlock = $ToolLines -join "`r`n"
     $Block = @"
 $Begin
@@ -80,6 +88,9 @@ $Begin
       HERMES_AEC_RHINOMCP_PORT: "$RhinoPort"
       HERMES_AEC_LEGACY_RHINO_URL: http://127.0.0.1:$LegacyRhinoPort/
       HERMES_AEC_ENABLE_LEGACY_FALLBACK: "$(if ($EnableLegacyFallback -and -not $DisableLegacyFallback) { '1' } else { '0' })"
+      HERMES_AEC_ENABLE_BLENDER: "$($EnableBlender.ToString().ToLower())"
+      HERMES_AEC_BLENDER_COMMAND: "$BlenderCommandYaml"
+      HERMES_AEC_BLENDER_ARGS: ""
     connect_timeout: 30
     timeout: 320
     enabled: true
