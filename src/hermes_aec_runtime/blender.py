@@ -50,7 +50,16 @@ def _scene_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if error:
         raise BlenderUnavailable(error)
     result = payload.get("result")
-    return result if payload.get("status") == "success" and isinstance(result, dict) else payload
+    if isinstance(result, str):
+        try:
+            decoded = json.loads(result)
+        except json.JSONDecodeError:
+            decoded = None
+        if isinstance(decoded, dict):
+            return decoded
+    if isinstance(result, dict):
+        return result
+    return payload
 
 
 class BlenderTransport(Protocol):

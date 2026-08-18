@@ -41,6 +41,17 @@ def test_scene_preprocessing_unwraps_current_blendermcp_envelope():
     assert scene["objects"][0]["name"] == "House"
 
 
+def test_scene_preprocessing_decodes_blendermcp_json_string_result():
+    class StringEnvelopeTransport(FakeTransport):
+        async def call(self, tool, arguments):
+            raw = await super().call(tool, arguments)
+            return {"result": __import__("json").dumps(raw)} if tool == "get_scene_info" else raw
+    state = {"calls": []}
+    scene = asyncio.run(BlenderGateway(lambda: StringEnvelopeTransport(state)).scene_preprocessing())
+    assert len(scene["objects"]) == 1
+    assert scene["objects"][0]["name"] == "House"
+
+
 def test_textual_blendermcp_execution_error_is_not_completed():
     class ErrorTransport(FakeTransport):
         async def call(self, tool, arguments):
