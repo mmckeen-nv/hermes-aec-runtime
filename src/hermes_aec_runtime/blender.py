@@ -23,6 +23,36 @@ class BlenderUnavailable(RuntimeError): pass
 SCENE_QUERY_PROMPT = "Inspect the current Blender scene for deterministic AEC verification; do not modify it."
 
 
+def _tool_error(payload: Any) -> str | None:
+    """Recognize BlenderMCP failures that are incorrectly returned as success text."""
+    if isinstance(payload, dict):
+        if str(payload.get("status", "")).lower() in {"error", "failed", "failure"}:
+            return str(payload.get("error") or payload.get("message") or payload)
+        for key in ("result", "content", "stdout"):
+            error = _tool_error(payload.get(key)) if key in payload else None
+            if error:
+                return error
+    elif isinstance(payload, (list, tuple)):
+        for item in payload:
+            error = _tool_error(item)
+            if error:
+                return error
+    elif isinstance(payload, str):
+        text = payload.strip()
+        if text.lower().startswith(("error executing", "error:", "execution error", "traceback (most recent call last)")):
+            return text
+    return None
+
+
+def _scene_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Unwrap the success envelope emitted by current BlenderMCP releases."""
+    error = _tool_error(payload)
+    if error:
+        raise BlenderUnavailable(error)
+    result = payload.get("result")
+    return result if payload.get("status") == "success" and isinstance(result, dict) else payload
+
+
 class BlenderTransport(Protocol):
     async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -44,15 +74,24 @@ class StdioBlenderTransport:
             detail = " ".join(getattr(item, "text", "") for item in result.content)
             raise BlenderUnavailable(detail or f"Blender MCP tool {tool} failed")
         if result.structuredContent is not None:
-            return dict(result.structuredContent)
+            payload = dict(result.structuredContent)
+            error = _tool_error(payload)
+            if error: raise BlenderUnavailable(error)
+            return payload
         texts = [getattr(item, "text", "") for item in result.content]
         if len(texts) == 1:
             try:
                 decoded = json.loads(texts[0])
-                return decoded if isinstance(decoded, dict) else {"result": decoded}
+                payload = decoded if isinstance(decoded, dict) else {"result": decoded}
+                error = _tool_error(payload)
+                if error: raise BlenderUnavailable(error)
+                return payload
             except json.JSONDecodeError:
                 pass
-        return {"content": texts}
+        payload = {"content": texts}
+        error = _tool_error(payload)
+        if error: raise BlenderUnavailable(error)
+        return payload
 
 
 def default_transport() -> StdioBlenderTransport:
@@ -84,6 +123,7 @@ class BlenderGateway:
 
     async def scene_preprocessing(self, *, user_prompt: str = SCENE_QUERY_PROMPT) -> dict[str, Any]:
         payload = await self._read(lambda: self._call("get_scene_info", {"user_prompt": user_prompt}))
+        payload = _scene_payload(payload)
         objects = []
         for raw in payload.get("objects", []):
             item = {
@@ -119,6 +159,8 @@ class BlenderGateway:
                 if document_revision is not None and before["document_revision"] != document_revision:
                     return blocked_stale(host="blender", transaction_id=transaction_id, expected=document_revision, current=before["document_revision"], fingerprint=fingerprint)
                 result = await self._call("execute_blender_code", {"code": compiled.script, "user_prompt": intent})
+                error = _tool_error(result)
+                if error: raise BlenderUnavailable(error)
                 after = await self.scene_preprocessing_unlocked(user_prompt=intent)
             except Exception as exc:
                 receipt = lifecycle_receipt(host="blender", transaction_id=transaction_id, status="unknown", fingerprint=fingerprint, error=str(exc), recovery="Inspect and reconcile the scene; do not issue another mutation blindly.")
@@ -130,6 +172,7 @@ class BlenderGateway:
 
     async def scene_preprocessing_unlocked(self, *, user_prompt: str = SCENE_QUERY_PROMPT) -> dict[str, Any]:
         payload = await self._call("get_scene_info", {"user_prompt": user_prompt})
+        payload = _scene_payload(payload)
         objects = []
         for raw in payload.get("objects", []):
             item = {"id": str(raw.get("id") or raw.get("name")), "name": str(raw.get("name", "")), "kind": str(raw.get("type", "UNKNOWN")), "layer": str(raw.get("collection", "Scene Collection")), "properties": {k: raw[k] for k in ("location", "rotation", "scale", "bounds", "materials") if k in raw}}

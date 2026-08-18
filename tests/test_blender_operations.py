@@ -35,6 +35,14 @@ def test_import_accepts_validated_handoff_scale_alias_and_applies_it_to_new_obje
     assert "component*op[\"unit_scale\"]" in compiled.script
 
 
+def test_eevee_engine_is_selected_across_blender_versions():
+    compiled = compile_blender_transaction([{"op": "render_settings", "engine": "BLENDER_EEVEE_NEXT"}])
+    assert '"BLENDER_EEVEE_NEXT":"BLENDER_EEVEE"' in compiled.script
+    assert '"BLENDER_EEVEE":"BLENDER_EEVEE_NEXT"' in compiled.script
+    assert "except TypeError" in compiled.script
+    assert normalize_blender_operations([{"op": "render_settings", "engine": "BLENDER_EEVEE"}])[0]["engine"] == "BLENDER_EEVEE"
+
+
 @pytest.mark.parametrize("operation", [
     {"op": "import_scene", "path": "bad.3dm"},
     {"op": "transform", "objects": [] , "location": [0, 0, 0]},

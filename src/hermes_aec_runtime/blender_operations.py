@@ -130,7 +130,7 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
             op["energy"] = _number(raw.get("energy", 1000), f"{path}.energy", positive=True)
         elif kind == "render_settings":
             op["engine"] = str(raw.get("engine", "BLENDER_EEVEE_NEXT"))
-            if op["engine"] not in {"BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH", "CYCLES"}: raise BlenderOperationError(f"{path}.engine: unsupported")
+            if op["engine"] not in {"BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH", "CYCLES"}: raise BlenderOperationError(f"{path}.engine: unsupported")
             resolution = raw.get("resolution", [1920, 1080])
             if not isinstance(resolution, (list, tuple)) or len(resolution) != 2: raise BlenderOperationError(f"{path}.resolution: requires width and height")
             op["resolution"] = [int(_number(x, f"{path}.resolution", positive=True)) for x in resolution]
@@ -202,8 +202,14 @@ for op in ops:
         else: data.energy=op["energy"]
         changed.append(obj.name)
     elif kind=="render_settings":
-        s=bpy.context.scene; s.render.engine=op["engine"]; s.render.resolution_x,s.render.resolution_y=op["resolution"]
-        if op["engine"]=="CYCLES": s.cycles.samples=op["samples"]
+        s=bpy.context.scene; requested=op["engine"]
+        try: s.render.engine=requested
+        except TypeError:
+            fallback={"BLENDER_EEVEE_NEXT":"BLENDER_EEVEE","BLENDER_EEVEE":"BLENDER_EEVEE_NEXT"}.get(requested)
+            if not fallback: raise
+            requested=fallback; s.render.engine=requested
+        s.render.resolution_x,s.render.resolution_y=op["resolution"]
+        if requested=="CYCLES": s.cycles.samples=op["samples"]
     elif kind=="save_blend": bpy.ops.wm.save_as_mainfile(filepath=op["path"])
     elif kind=="render": bpy.context.scene.render.filepath=op["path"]; bpy.ops.render.render(write_still=True)
 print(json.dumps({"status":"completed","changed":sorted(set(changed))}))

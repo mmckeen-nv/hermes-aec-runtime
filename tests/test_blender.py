@@ -30,6 +30,30 @@ def test_scene_preprocessing_matches_runtime_shape_and_retries_reads():
     assert all(arguments["user_prompt"] for _, arguments in state["calls"])
 
 
+def test_scene_preprocessing_unwraps_current_blendermcp_envelope():
+    class EnvelopeTransport(FakeTransport):
+        async def call(self, tool, arguments):
+            raw = await super().call(tool, arguments)
+            return {"status": "success", "result": raw} if tool == "get_scene_info" else raw
+    state = {"calls": []}
+    scene = asyncio.run(BlenderGateway(lambda: EnvelopeTransport(state)).scene_preprocessing())
+    assert len(scene["objects"]) == 1
+    assert scene["objects"][0]["name"] == "House"
+
+
+def test_textual_blendermcp_execution_error_is_not_completed():
+    class ErrorTransport(FakeTransport):
+        async def call(self, tool, arguments):
+            if tool == "execute_blender_code":
+                return {"status": "success", "result": "Error executing code: invalid engine"}
+            return await super().call(tool, arguments)
+    state = {"calls": []}
+    result = asyncio.run(BlenderGateway(lambda: ErrorTransport(state)).execute(
+        intent="render", operations=[{"op": "render", "path": "a.png"}], idempotency_key="bad-render"))
+    assert result["status"] == "unknown"
+    assert "invalid engine" in result["error"]
+
+
 def test_mutation_receipt_is_idempotent_and_payload_bound():
     state = {"calls": []}; client = gateway(state)
     kwargs = {"intent": "organize", "operations": [{"op": "ensure_collection", "name": "AEC"}], "idempotency_key": "demo-1"}
