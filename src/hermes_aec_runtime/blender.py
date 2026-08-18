@@ -20,6 +20,9 @@ from .host_contract import blocked_stale, completed_receipt, content_hash, final
 class BlenderUnavailable(RuntimeError): pass
 
 
+SCENE_QUERY_PROMPT = "Inspect the current Blender scene for deterministic AEC verification; do not modify it."
+
+
 class BlenderTransport(Protocol):
     async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -79,8 +82,8 @@ class BlenderGateway:
                     if attempt + 1 < self.read_attempts: await asyncio.sleep(.05 * 2**attempt)
             raise BlenderUnavailable(f"Blender read failed after {self.read_attempts} attempts: {error}")
 
-    async def scene_preprocessing(self) -> dict[str, Any]:
-        payload = await self._read(lambda: self._call("get_scene_info", {}))
+    async def scene_preprocessing(self, *, user_prompt: str = SCENE_QUERY_PROMPT) -> dict[str, Any]:
+        payload = await self._read(lambda: self._call("get_scene_info", {"user_prompt": user_prompt}))
         objects = []
         for raw in payload.get("objects", []):
             item = {
@@ -112,11 +115,11 @@ class BlenderGateway:
                 if prior["fingerprint"] == fingerprint: return {**prior, "replayed": True, "concurrent_replay": True}
                 return lifecycle_receipt(host="blender", transaction_id=transaction_id, status="blocked", fingerprint=fingerprint, error="idempotency key is bound to another payload", prior_receipt=prior)
             try:
-                before = await self.scene_preprocessing_unlocked()
+                before = await self.scene_preprocessing_unlocked(user_prompt=intent)
                 if document_revision is not None and before["document_revision"] != document_revision:
                     return blocked_stale(host="blender", transaction_id=transaction_id, expected=document_revision, current=before["document_revision"], fingerprint=fingerprint)
-                result = await self._call("execute_blender_code", {"code": compiled.script})
-                after = await self.scene_preprocessing_unlocked()
+                result = await self._call("execute_blender_code", {"code": compiled.script, "user_prompt": intent})
+                after = await self.scene_preprocessing_unlocked(user_prompt=intent)
             except Exception as exc:
                 receipt = lifecycle_receipt(host="blender", transaction_id=transaction_id, status="unknown", fingerprint=fingerprint, error=str(exc), recovery="Inspect and reconcile the scene; do not issue another mutation blindly.")
                 self._receipts[idempotency_key] = receipt
@@ -125,8 +128,8 @@ class BlenderGateway:
             self._receipts[idempotency_key] = receipt
         return receipt
 
-    async def scene_preprocessing_unlocked(self) -> dict[str, Any]:
-        payload = await self._call("get_scene_info", {})
+    async def scene_preprocessing_unlocked(self, *, user_prompt: str = SCENE_QUERY_PROMPT) -> dict[str, Any]:
+        payload = await self._call("get_scene_info", {"user_prompt": user_prompt})
         objects = []
         for raw in payload.get("objects", []):
             item = {"id": str(raw.get("id") or raw.get("name")), "name": str(raw.get("name", "")), "kind": str(raw.get("type", "UNKNOWN")), "layer": str(raw.get("collection", "Scene Collection")), "properties": {k: raw[k] for k in ("location", "rotation", "scale", "bounds", "materials") if k in raw}}
