@@ -29,7 +29,7 @@ _MAX_OPERATIONS = 256
 _MAX_TEXT = 4_096
 
 _FIELDS = {
-    "import_scene": {"op", "id", "path", "collection"}, "ensure_collection": {"op", "id", "name"},
+    "import_scene": {"op", "id", "path", "collection", "source_host", "unit_scale", "unit_scale_to_meters"}, "ensure_collection": {"op", "id", "name"},
     "transform": {"op", "id", "objects", "location", "rotation_degrees", "scale"},
     "delete_objects": {"op", "id", "objects"},
     "assign_material": {"op", "id", "objects", "material", "base_color", "metallic", "roughness"},
@@ -84,6 +84,15 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
             if ext not in {".fbx", ".obj", ".gltf", ".glb", ".usd", ".usda", ".usdc"}:
                 raise BlenderOperationError(f"{path}.path: unsupported interchange format")
             op["collection"] = _text(raw.get("collection", "AEC Import"), f"{path}.collection")
+            op["source_host"] = str(raw.get("source_host", "rhino")).lower()
+            if op["source_host"] != "rhino":
+                raise BlenderOperationError(f"{path}.source_host: must be rhino")
+            if "unit_scale" in raw and "unit_scale_to_meters" in raw:
+                raise BlenderOperationError(f"{path}: specify only one unit scale field")
+            scale_value = raw.get("unit_scale", raw.get("unit_scale_to_meters", 1.0))
+            op["unit_scale"] = _number(scale_value, f"{path}.unit_scale", positive=True)
+            if not 1e-9 <= op["unit_scale"] <= 1e9:
+                raise BlenderOperationError(f"{path}.unit_scale: outside supported range")
         elif kind == "ensure_collection":
             op["name"] = _text(raw.get("name"), f"{path}.name")
         elif kind in {"transform", "delete_objects"}:
@@ -168,7 +177,9 @@ for op in ops:
         c=collection(op["collection"])
         for obj in set(bpy.data.objects)-before:
             for old in list(obj.users_collection): old.objects.unlink(obj)
-            c.objects.link(obj); changed.append(obj.name)
+            c.objects.link(obj)
+            if op["unit_scale"] != 1.0: obj.scale=[component*op["unit_scale"] for component in obj.scale]
+            changed.append(obj.name)
     elif kind=="transform":
         for obj in objects(op["objects"]):
             if "location" in op: obj.location=op["location"]
