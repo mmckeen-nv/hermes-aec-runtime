@@ -27,6 +27,7 @@ def test_scene_preprocessing_matches_runtime_shape_and_retries_reads():
     assert len(item["content_hash"]) == 64
     assert len(scene["document_revision"]) == 64
     assert len(state["calls"]) == 3
+    assert all(arguments["user_prompt"] for _, arguments in state["calls"])
 
 
 def test_mutation_receipt_is_idempotent_and_payload_bound():
@@ -35,6 +36,7 @@ def test_mutation_receipt_is_idempotent_and_payload_bound():
     first = asyncio.run(client.execute(**kwargs)); second = asyncio.run(client.execute(**kwargs))
     assert first["status"] == "completed" and second["replayed"] is True
     assert [call[0] for call in state["calls"]] == ["get_scene_info", "execute_blender_code", "get_scene_info"]
+    assert all(arguments["user_prompt"] == "organize" for _, arguments in state["calls"])
     blocked = asyncio.run(client.execute(intent="other", operations=[{"op": "ensure_collection", "name": "Other"}], idempotency_key="demo-1"))
     assert blocked["status"] == "blocked"
 
