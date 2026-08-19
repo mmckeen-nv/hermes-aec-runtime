@@ -5,7 +5,8 @@ param(
     [ValidateRange(1024, 65535)][int]$LegacyRhinoPort = 10500,
     [switch]$DisableLegacyFallback,
     [switch]$EnableLegacyFallback,
-    [switch]$EnableBlender
+    [switch]$EnableBlender,
+    [switch]$EnableComfyUI
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,8 +75,15 @@ foreach ($Name in $Profile) {
         $ToolLines += @(
             "        - blender_scene_query"
             "        - blender_apply_operations"
+            "        - blender_import_handoff"
             "        - blender_validate_handoff"
             "        - blender_proof_and_recovery"
+        )
+    }
+    if ($EnableComfyUI) {
+        $ToolLines += @(
+            "        - comfyui_health"
+            "        - comfyui_stylize_image"
         )
     }
     $ToolBlock = $ToolLines -join "`r`n"
@@ -93,6 +101,8 @@ $Begin
       HERMES_AEC_ENABLE_BLENDER: "$($EnableBlender.ToString().ToLower())"
       HERMES_AEC_BLENDER_COMMAND: "$BlenderCommandYaml"
       HERMES_AEC_BLENDER_ARGS: ""
+      HERMES_AEC_ENABLE_COMFYUI: "$($EnableComfyUI.ToString().ToLower())"
+      HERMES_AEC_COMFYUI_URL: "http://127.0.0.1:8188"
     connect_timeout: 30
     timeout: 320
     enabled: true

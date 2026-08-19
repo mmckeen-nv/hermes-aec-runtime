@@ -9,3 +9,4 @@ def test_fast_path_and_all_typed_hosts_are_exposed():
     for host in ("rhino", "blender", "freecad"):
         assert f"{host}_scene_query" in tools
         assert f"{host}_apply_operations" in tools
+    assert {"blender_import_handoff", "comfyui_health", "comfyui_stylize_image"} <= tools

@@ -9,6 +9,7 @@ from .operations import OperationValidationError, compile_transaction
 from .verification import verify_transaction
 from .router import route_request
 from .blender import BlenderGateway, default_transport, recovery_plan as blender_recovery_plan, validate_handoff_manifest
+from .comfyui import ComfyUIGateway, default_transport as default_comfyui_transport
 from .memory import FilesystemDMLAdapter, create_outcome
 from .flight_recorder import FlightRecorder, make_trace
 from .freecad import FreeCADGateway, freecad_recovery_plan
@@ -24,6 +25,7 @@ from pathlib import Path
 
 mcp = FastMCP("Hermes AEC Runtime")
 _blender = BlenderGateway(default_transport)
+_comfyui = ComfyUIGateway(default_comfyui_transport())
 _memory = FilesystemDMLAdapter(Path(os.environ.get("HERMES_AEC_MEMORY_ROOT", ".hermes-aec-memory")))
 _recorder = FlightRecorder(Path(os.environ.get("HERMES_AEC_TRACE_PATH", ".hermes-aec-traces/traces.jsonl")))
 _freecad = FreeCADGateway()
@@ -131,6 +133,37 @@ async def blender_apply_operations(intent: str, operations: list[dict], idempote
 
 
 @mcp.tool()
+async def blender_import_handoff(
+    export_path: str,
+    blend_path: str,
+    idempotency_key: str,
+    collection: str = "Rhino Handoff",
+    unit_scale: float = 1.0,
+) -> dict:
+    """Import one Rhino GLB, save the working .blend, frame it, and foreground the exact connected Blender instance."""
+    source = Path(export_path)
+    destination = Path(blend_path)
+    if not source.is_absolute() or not source.is_file() or source.suffix.lower() != ".glb":
+        raise ValueError("export_path must be an existing absolute .glb path")
+    if not destination.is_absolute() or destination.suffix.lower() != ".blend":
+        raise ValueError("blend_path must be an absolute .blend path")
+    if destination.exists() and not _blender.has_receipt(idempotency_key):
+        raise ValueError("blend_path already exists")
+    if any(word in destination.name.upper() for word in ("MASTER", "HERO")):
+        raise ValueError("blend_path must be a working file, not MASTER or HERO")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    return await _blender.execute(
+        intent="Import the verified Rhino handoff, persist it, and visibly present the working scene",
+        operations=[
+            {"op": "import_scene", "id": "import_handoff", "path": str(source), "collection": collection, "source_host": "rhino", "unit_scale": unit_scale},
+            {"op": "save_blend", "id": "save_working_scene", "path": str(destination)},
+            {"op": "present_scene", "id": "present_working_scene"},
+        ],
+        idempotency_key=idempotency_key,
+    )
+
+
+@mcp.tool()
 def blender_validate_handoff(manifest: dict) -> dict:
     """Validate Rhino-to-Blender object IDs, units, layers, and export path before import."""
     return validate_handoff_manifest(manifest)
@@ -140,6 +173,32 @@ def blender_validate_handoff(manifest: dict) -> dict:
 def blender_proof_and_recovery(receipt: dict) -> dict:
     """Return the deterministic verify/reconcile/rollback plan for a Blender receipt."""
     return blender_recovery_plan(receipt)
+
+
+@mcp.tool()
+async def comfyui_health() -> dict:
+    """Verify that the managed loopback ComfyUI service and GPU backend are ready."""
+    return await _comfyui.health()
+
+
+@mcp.tool()
+async def comfyui_stylize_image(
+    input_path: str,
+    output_path: str,
+    prompt: str,
+    idempotency_key: str,
+    negative_prompt: str = "distorted architecture, changed geometry, people, text, watermark, blurry, low quality",
+    seed: int = 0,
+    steps: int = 20,
+    width: int = 768,
+    height: int = 512,
+) -> dict:
+    """Run the installed Flux 2 Klein image-edit workflow and atomically retrieve one PNG result."""
+    return await _comfyui.stylize(
+        input_path=input_path, output_path=output_path, prompt=prompt,
+        idempotency_key=idempotency_key, negative_prompt=negative_prompt,
+        seed=seed, steps=steps, width=width, height=height,
+    )
 
 
 @mcp.tool()

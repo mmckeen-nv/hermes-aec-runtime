@@ -23,7 +23,7 @@ class CompiledBlenderTransaction:
 
 _KINDS = {
     "import_scene", "ensure_collection", "transform", "delete_objects", "assign_material",
-    "create_camera", "create_light", "render_settings", "save_blend", "render",
+    "create_camera", "create_light", "render_settings", "save_blend", "render", "present_scene",
 }
 _MAX_OPERATIONS = 256
 _MAX_TEXT = 4_096
@@ -37,6 +37,7 @@ _FIELDS = {
     "create_light": {"op", "id", "name", "type", "location", "rotation_degrees", "energy"},
     "render_settings": {"op", "id", "engine", "resolution", "samples"},
     "save_blend": {"op", "id", "path"}, "render": {"op", "id", "path"},
+    "present_scene": {"op", "id"},
 }
 
 
@@ -141,6 +142,8 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
             suffix = Path(op["path"]).suffix.lower()
             if suffix != expected if isinstance(expected, str) else suffix not in expected:
                 raise BlenderOperationError(f"{path}.path: invalid output extension")
+        elif kind == "present_scene":
+            pass
         result.append(op); aliases.add(alias)
     return result
 
@@ -212,5 +215,27 @@ for op in ops:
         if requested=="CYCLES": s.cycles.samples=op["samples"]
     elif kind=="save_blend": bpy.ops.wm.save_as_mainfile(filepath=op["path"])
     elif kind=="render": bpy.context.scene.render.filepath=op["path"]; bpy.ops.render.render(write_still=True)
+    elif kind=="present_scene":
+        from mathutils import Vector
+        visible=[obj for obj in bpy.context.scene.objects if obj.type=="MESH" and not obj.hide_viewport]
+        corners=[obj.matrix_world @ Vector(corner) for obj in visible for corner in obj.bound_box]
+        if corners:
+            low=Vector((min(p.x for p in corners),min(p.y for p in corners),min(p.z for p in corners)))
+            high=Vector((max(p.x for p in corners),max(p.y for p in corners),max(p.z for p in corners)))
+            center=(low+high)*0.5; distance=max(high-low)*0.75
+            for window in bpy.context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type=="VIEW_3D": area.spaces.active.region_3d.view_location=center; area.spaces.active.region_3d.view_distance=max(distance,1.0)
+        if os.name=="nt":
+            import ctypes
+            pid=os.getpid(); handles=[]
+            callback=ctypes.WINFUNCTYPE(ctypes.c_bool,ctypes.c_void_p,ctypes.c_void_p)
+            def owned(hwnd,_):
+                found=ctypes.c_ulong(); ctypes.windll.user32.GetWindowThreadProcessId(hwnd,ctypes.byref(found))
+                if found.value==pid and ctypes.windll.user32.IsWindowVisible(hwnd): handles.append(hwnd)
+                return True
+            ctypes.windll.user32.EnumWindows(callback(owned),0)
+            for hwnd in handles: ctypes.windll.user32.ShowWindow(hwnd,9); ctypes.windll.user32.BringWindowToTop(hwnd); ctypes.windll.user32.SetForegroundWindow(hwnd)
+        changed.append("__presented_scene__")
 print(json.dumps({"status":"completed","changed":sorted(set(changed))}))
 '''

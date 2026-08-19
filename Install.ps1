@@ -6,6 +6,7 @@ param(
     [switch]$DisableLegacyFallback,
     [switch]$EnableLegacyFallback,
     [switch]$EnableBlender,
+    [switch]$EnableComfyUI,
     [switch]$SkipRhinoMCPInstall,
     [string]$RhinoMCPVersion = "0.4.0-aec.4"
 )
@@ -66,6 +67,9 @@ $Config = @{
                 HERMES_AEC_RHINOMCP_PORT = "$RhinoPort"
                 HERMES_AEC_LEGACY_RHINO_URL = "http://127.0.0.1:$LegacyRhinoPort/"
                 HERMES_AEC_ENABLE_LEGACY_FALLBACK = $(if ($EnableLegacyFallback -and -not $DisableLegacyFallback) { "1" } else { "0" })
+                HERMES_AEC_ENABLE_BLENDER = "$($EnableBlender.ToString().ToLower())"
+                HERMES_AEC_ENABLE_COMFYUI = "$($EnableComfyUI.ToString().ToLower())"
+                HERMES_AEC_COMFYUI_URL = "http://127.0.0.1:8188"
             }
         }
     }
@@ -79,8 +83,8 @@ $Config | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Runtime
 } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $Runtime "install-manifest.json") -Encoding utf8
 
 if (-not $SkipHermesRegistration) {
-    & (Join-Path $Root "Register-Hermes.ps1") -RhinoPort $RhinoPort -LegacyRhinoPort $LegacyRhinoPort -DisableLegacyFallback:$DisableLegacyFallback -EnableLegacyFallback:$EnableLegacyFallback -EnableBlender:$EnableBlender
+    & (Join-Path $Root "Register-Hermes.ps1") -RhinoPort $RhinoPort -LegacyRhinoPort $LegacyRhinoPort -DisableLegacyFallback:$DisableLegacyFallback -EnableLegacyFallback:$EnableLegacyFallback -EnableBlender:$EnableBlender -EnableComfyUI:$EnableComfyUI
 }
 & (Join-Path $Root "Doctor.ps1") -RhinoPort $RhinoPort -AllowRhinoOffline
-Write-Host "HERMES_AEC_INSTALLED config_version=2 rhinomcp_port=$RhinoPort legacy_fallback=$(($EnableLegacyFallback -and -not $DisableLegacyFallback).ToString().ToLower()) blender=$($EnableBlender.ToString().ToLower())"
+Write-Host "HERMES_AEC_INSTALLED config_version=2 rhinomcp_port=$RhinoPort legacy_fallback=$(($EnableLegacyFallback -and -not $DisableLegacyFallback).ToString().ToLower()) blender=$($EnableBlender.ToString().ToLower()) comfyui=$($EnableComfyUI.ToString().ToLower())"
 Write-Host "Restart Hermes and Rhino. In Rhino run AECMCPStart, then use a demo shortcut."

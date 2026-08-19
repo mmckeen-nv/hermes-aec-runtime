@@ -10,8 +10,8 @@ class FakeTransport:
         if self.state.get("failures", 0):
             self.state["failures"] -= 1
             raise ConnectionError("injected disconnect")
-        if tool == "get_scene_info":
-            return {"document_id": "blend-1", "units": "meters", "objects": [{"id": "a", "name": "House", "type": "MESH", "collection": "AEC", "location": [0, 0, 0]}]}
+        if tool == "execute_blender_code" and "HERMES_AEC_BLENDER_SCENE=" in arguments.get("code", ""):
+            return {"result": 'Code executed successfully: HERMES_AEC_BLENDER_SCENE={"document_id":"blend-1","units":"meters","process_id":42,"total_objects":1,"truncated":false,"objects":[{"id":"a","name":"House","type":"MESH","collection":"AEC","location":[0,0,0]}]}\n'}
         return {"stdout": '{"status":"completed","changed":["House"]}'}
 
 
@@ -26,6 +26,7 @@ def test_scene_preprocessing_matches_runtime_shape_and_retries_reads():
     assert {key:item[key] for key in ("id","name","kind","layer","properties")} == {"id": "a", "name": "House", "kind": "MESH", "layer": "AEC", "properties": {"location": [0, 0, 0]}}
     assert len(item["content_hash"]) == 64
     assert len(scene["document_revision"]) == 64
+    assert scene["process_id"] == 42 and scene["total_objects"] == 1
     assert len(state["calls"]) == 3
     assert all(arguments["user_prompt"] for _, arguments in state["calls"])
 
@@ -34,7 +35,7 @@ def test_scene_preprocessing_unwraps_current_blendermcp_envelope():
     class EnvelopeTransport(FakeTransport):
         async def call(self, tool, arguments):
             raw = await super().call(tool, arguments)
-            return {"status": "success", "result": raw} if tool == "get_scene_info" else raw
+            return {"status": "success", "result": raw} if "HERMES_AEC_BLENDER_SCENE=" in arguments.get("code", "") else raw
     state = {"calls": []}
     scene = asyncio.run(BlenderGateway(lambda: EnvelopeTransport(state)).scene_preprocessing())
     assert len(scene["objects"]) == 1
@@ -45,7 +46,7 @@ def test_scene_preprocessing_decodes_blendermcp_json_string_result():
     class StringEnvelopeTransport(FakeTransport):
         async def call(self, tool, arguments):
             raw = await super().call(tool, arguments)
-            return {"result": __import__("json").dumps(raw)} if tool == "get_scene_info" else raw
+            return {"result": __import__("json").dumps(raw)} if "HERMES_AEC_BLENDER_SCENE=" in arguments.get("code", "") else raw
     state = {"calls": []}
     scene = asyncio.run(BlenderGateway(lambda: StringEnvelopeTransport(state)).scene_preprocessing())
     assert len(scene["objects"]) == 1
@@ -70,7 +71,7 @@ def test_mutation_receipt_is_idempotent_and_payload_bound():
     kwargs = {"intent": "organize", "operations": [{"op": "ensure_collection", "name": "AEC"}], "idempotency_key": "demo-1"}
     first = asyncio.run(client.execute(**kwargs)); second = asyncio.run(client.execute(**kwargs))
     assert first["status"] == "completed" and second["replayed"] is True
-    assert [call[0] for call in state["calls"]] == ["get_scene_info", "execute_blender_code", "get_scene_info"]
+    assert [call[0] for call in state["calls"]] == ["execute_blender_code", "execute_blender_code", "execute_blender_code"]
     assert all(arguments["user_prompt"] == "organize" for _, arguments in state["calls"])
     blocked = asyncio.run(client.execute(intent="other", operations=[{"op": "ensure_collection", "name": "Other"}], idempotency_key="demo-1"))
     assert blocked["status"] == "blocked"
@@ -97,7 +98,7 @@ def test_stale_revision_blocks_before_blender_mutation():
     state = {"calls": []}
     result = asyncio.run(gateway(state).execute(intent="edit", operations=[{"op":"ensure_collection","name":"AEC"}], idempotency_key="stale-b", document_revision="stale"))
     assert result["status"] == "blocked"
-    assert [name for name, _ in state["calls"]] == ["get_scene_info"]
+    assert [name for name, _ in state["calls"]] == ["execute_blender_code"]
 
 
 def test_handoff_manifest_requires_ids_layers_units_and_export():

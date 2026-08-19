@@ -21,6 +21,17 @@ class BlenderUnavailable(RuntimeError): pass
 
 
 SCENE_QUERY_PROMPT = "Inspect the current Blender scene for deterministic AEC verification; do not modify it."
+SCENE_MARKER = "HERMES_AEC_BLENDER_SCENE="
+FULL_SCENE_SCRIPT = r'''import bpy, json, os
+from mathutils import Vector
+rows=[]
+all_objects=list(bpy.data.objects)
+for obj in all_objects[:5000]:
+    corners=[obj.matrix_world @ Vector(corner) for corner in obj.bound_box] if obj.type=="MESH" else []
+    bounds=None if not corners else [[min(p[i] for p in corners) for i in range(3)],[max(p[i] for p in corners) for i in range(3)]]
+    rows.append({"id":obj.name,"name":obj.name,"type":obj.type,"collection":obj.users_collection[0].name if obj.users_collection else "Scene Collection","location":list(obj.location),"rotation":list(obj.rotation_euler),"scale":list(obj.scale),"bounds":bounds,"materials":[slot.material.name for slot in obj.material_slots if slot.material]})
+print("HERMES_AEC_BLENDER_SCENE="+json.dumps({"document_id":bpy.data.filepath or "unsaved","units":"meters","process_id":os.getpid(),"total_objects":len(all_objects),"truncated":len(all_objects)>5000,"objects":rows},separators=(",",":")))
+'''
 
 
 def _tool_error(payload: Any) -> str | None:
@@ -62,6 +73,50 @@ def _scene_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _full_scene_payload(payload: Any) -> dict[str, Any]:
+    error = _tool_error(payload)
+    if error:
+        raise BlenderUnavailable(error)
+    strings: list[str] = []
+    def collect(value: Any) -> None:
+        if isinstance(value, str):
+            strings.append(value)
+            try: decoded = json.loads(value)
+            except json.JSONDecodeError: decoded = None
+            if decoded is not None and decoded != value: collect(decoded)
+        elif isinstance(value, dict):
+            for child in value.values(): collect(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value: collect(child)
+    collect(payload)
+    for text in strings:
+        if SCENE_MARKER not in text:
+            continue
+        candidate = text.split(SCENE_MARKER, 1)[1].splitlines()[0].strip()
+        try: decoded = json.loads(candidate)
+        except json.JSONDecodeError: continue
+        if isinstance(decoded, dict) and isinstance(decoded.get("objects"), list):
+            return decoded
+    raise BlenderUnavailable("Blender full-scene audit marker was missing")
+
+
+def _finalize_blender_scene(payload: dict[str, Any]) -> dict[str, Any]:
+    objects = []
+    for raw in payload.get("objects", []):
+        item = {
+            "id": str(raw.get("id") or raw.get("name")), "name": str(raw.get("name", "")),
+            "kind": str(raw.get("type", "UNKNOWN")), "layer": str(raw.get("collection", "Scene Collection")),
+            "properties": {k: raw[k] for k in ("location", "rotation", "scale", "bounds", "materials") if k in raw},
+        }
+        item["content_hash"] = content_hash(item)
+        objects.append(item)
+    scene = finalize_scene(host="blender", document_id=str(payload.get("document_id", "unsaved")), units=str(payload.get("units", "meters")), objects=objects)
+    scene["process_id"] = payload.get("process_id")
+    scene["total_objects"] = int(payload.get("total_objects", len(objects)))
+    scene["truncated"] = bool(payload.get("truncated"))
+    return scene
+
+
 class BlenderTransport(Protocol):
     async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -74,7 +129,12 @@ class StdioBlenderTransport:
     args: tuple[str, ...] = ("blender-mcp",)
 
     async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        parameters = StdioServerParameters(command=self.command, args=list(self.args))
+        child_env = dict(os.environ)
+        child_env.update({
+            "DISABLE_TELEMETRY": "true", "BLENDER_MCP_DISABLE_TELEMETRY": "true",
+            "MCP_DISABLE_TELEMETRY": "true", "HF_HUB_DISABLE_TELEMETRY": "1",
+        })
+        parameters = StdioServerParameters(command=self.command, args=list(self.args), env=child_env)
         async with stdio_client(parameters) as (reader, writer):
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
@@ -117,6 +177,9 @@ class BlenderGateway:
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
     _receipts: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
 
+    def has_receipt(self, idempotency_key: str) -> bool:
+        return idempotency_key in self._receipts
+
     async def _call(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         return await asyncio.wait_for(self.transport_factory().call(tool, args), self.timeout_seconds)
 
@@ -131,19 +194,8 @@ class BlenderGateway:
             raise BlenderUnavailable(f"Blender read failed after {self.read_attempts} attempts: {error}")
 
     async def scene_preprocessing(self, *, user_prompt: str = SCENE_QUERY_PROMPT) -> dict[str, Any]:
-        payload = await self._read(lambda: self._call("get_scene_info", {"user_prompt": user_prompt}))
-        payload = _scene_payload(payload)
-        objects = []
-        for raw in payload.get("objects", []):
-            item = {
-                "id": str(raw.get("id") or raw.get("name")), "name": str(raw.get("name", "")),
-                "kind": str(raw.get("type", "UNKNOWN")), "layer": str(raw.get("collection", "Scene Collection")),
-                "properties": {k: raw[k] for k in ("location", "rotation", "scale", "bounds", "materials") if k in raw},
-            }
-            item["content_hash"] = content_hash(item)
-            objects.append(item)
-        return finalize_scene(host="blender", document_id=str(payload.get("document_id", payload.get("file", "unsaved"))),
-                              units=str(payload.get("units", "meters")), objects=objects)
+        payload = await self._read(lambda: self._call("execute_blender_code", {"code": FULL_SCENE_SCRIPT, "user_prompt": user_prompt}))
+        return _finalize_blender_scene(_full_scene_payload(payload))
 
     async def execute(self, *, intent: str, operations: list[dict[str, Any]], idempotency_key: str, dry_run: bool = False, document_revision: str | None = None) -> dict[str, Any]:
         if not idempotency_key.strip(): raise ValueError("idempotency_key is required")
@@ -180,13 +232,8 @@ class BlenderGateway:
         return receipt
 
     async def scene_preprocessing_unlocked(self, *, user_prompt: str = SCENE_QUERY_PROMPT) -> dict[str, Any]:
-        payload = await self._call("get_scene_info", {"user_prompt": user_prompt})
-        payload = _scene_payload(payload)
-        objects = []
-        for raw in payload.get("objects", []):
-            item = {"id": str(raw.get("id") or raw.get("name")), "name": str(raw.get("name", "")), "kind": str(raw.get("type", "UNKNOWN")), "layer": str(raw.get("collection", "Scene Collection")), "properties": {k: raw[k] for k in ("location", "rotation", "scale", "bounds", "materials") if k in raw}}
-            item["content_hash"] = content_hash(item); objects.append(item)
-        return finalize_scene(host="blender", document_id=str(payload.get("document_id", payload.get("file", "unsaved"))), units=str(payload.get("units", "meters")), objects=objects)
+        payload = await self._call("execute_blender_code", {"code": FULL_SCENE_SCRIPT, "user_prompt": user_prompt})
+        return _finalize_blender_scene(_full_scene_payload(payload))
 
 
 def validate_handoff_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
