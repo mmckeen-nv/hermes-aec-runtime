@@ -1,6 +1,6 @@
 # Hermes AEC Runtime
 
-An independent sidecar that lets Hermes inspect and change Rhino, FreeCAD, and Blender scenes through a small, typed, transactional tool surface. It is deliberately separate from every demo repository.
+An independent sidecar that lets Hermes inspect and change Rhino, FreeCAD, and Blender scenes and submit verified ComfyUI visualizations through a small, typed, transactional tool surface. It is deliberately separate from every demo repository.
 
 The normal Rhino surface is:
 
@@ -11,6 +11,9 @@ The normal Rhino surface is:
 - `rhino_export_scene` — create a verified, non-overwriting metre-scale GLB handoff for Blender.
 - `rhino_open_working_document` — safely reopen a timestamped working 3DM after Rhino restarts.
 - `rhino_verify_transaction` — verify the resulting model delta and assertions.
+- `blender_import_handoff` — import the verified GLB, save a working `.blend`, frame it, and foreground the exact connected Blender process.
+- `comfyui_health` — verify the managed local service and GPU backend.
+- `comfyui_stylize_image` — run Flux 2 Klein image editing and atomically retrieve one verified PNG.
 
 Raw Rhino scripting and foreground computer control are not part of the normal workflow.
 
@@ -23,6 +26,7 @@ The fastest normal path is `aec_run_workflow`: one Hermes tool call performs rou
 - Hermes with MCP support
 - Rhino 8 with the bundled hardened AEC RhinoMCP listening on loopback port `1999`
 - For Blender workflows: Blender with its standard MCP add-on running, plus `uvx blender-mcp` available
+- For ComfyUI workflows: the managed loopback service on `127.0.0.1:8188` with the Flux 2 Klein 4B, Qwen 3 4B, and Flux 2 VAE files installed
 - For Linux CAD workflows: FreeCAD with `freecad-mcp` available
 
 The typed FreeCAD surface currently covers box/cylinder creation, transforms, semantic attributes/groups, visibility/color, and deletion. Specialized construction may still use the demo's reviewed bounded FreeCAD fallback.
@@ -92,6 +96,6 @@ Use the bundled skills under `skills/` to keep this sequence concise. A lost mut
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-See [operator recipes](docs/OPERATOR_RECIPES.md), [architecture](docs/ARCHITECTURE.md), [workflow orchestration](docs/ORCHESTRATION.md), [demo integration](docs/DEMO_INTEGRATION.md), and [stack acceptance](docs/STACK_ACCEPTANCE.md). Demo repositories should pin a released sidecar version and call its installer; they should not copy runtime source.
+See [ComfyUI execution](docs/COMFYUI.md), [operator recipes](docs/OPERATOR_RECIPES.md), [architecture](docs/ARCHITECTURE.md), [workflow orchestration](docs/ORCHESTRATION.md), [demo integration](docs/DEMO_INTEGRATION.md), and [stack acceptance](docs/STACK_ACCEPTANCE.md). Demo repositories should pin a released sidecar version and call its installer; they should not copy runtime source.
 
 Model fine-tuning is gated, not assumed. Run `python tools/evaluate_model.py --mock --output .runtime/nemotron-readiness.json` to validate the evaluation harness. A real **Nemotron AEC Lightning** fine-tune remains NO-GO until at least 200 clean, independently verified Flight Recorder examples exist and the held-out model evaluation passes.

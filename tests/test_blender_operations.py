@@ -16,11 +16,13 @@ def test_compiles_complete_visualization_batch():
         {"op": "render_settings", "engine": "BLENDER_EEVEE_NEXT", "resolution": [1280, 720], "samples": 32},
         {"op": "save_blend", "path": "presentation.blend"},
         {"op": "render", "path": "hero.png"},
+        {"op": "present_scene"},
     ]
     compiled = compile_blender_transaction(ops)
     assert compiled.normalized["host"] == "blender"
-    assert len(compiled.normalized["operations"]) == 9
+    assert len(compiled.normalized["operations"]) == 10
     assert "bpy.ops.render.render(write_still=True)" in compiled.script
+    assert "__presented_scene__" in compiled.script
     assert len(compiled.fingerprint) == 64
 
 
