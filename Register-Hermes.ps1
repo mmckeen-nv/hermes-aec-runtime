@@ -76,6 +76,7 @@ foreach ($Name in $Profile) {
             "        - blender_scene_query"
             "        - blender_apply_operations"
             "        - blender_import_handoff"
+            "        - blender_render_archviz"
             "        - blender_validate_handoff"
             "        - blender_proof_and_recovery"
         )
