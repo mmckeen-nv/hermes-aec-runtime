@@ -114,8 +114,14 @@ async def blender_scene_query() -> dict:
 
 @mcp.tool()
 async def rhino_export_scene(path: str, expected_units: str = "Meters") -> dict:
-    """Export the active Rhino document to a new absolute .fbx path, refusing overwrite and unit mismatch."""
+    """Export the active Rhino document to a new absolute .glb (preferred) or .fbx path, refusing overwrite and unit mismatch."""
     return await _rhino_direct.export_scene(path, expected_units=expected_units)
+
+
+@mcp.tool()
+async def rhino_open_working_document(path: str) -> dict:
+    """Open an existing absolute .3dm working copy after restart; MASTER/HERO files and unsaved replacement are refused."""
+    return await _rhino_direct.open_working_document(path)
 
 
 @mcp.tool()

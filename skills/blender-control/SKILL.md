@@ -6,7 +6,7 @@ description: Inspect, modify, and verify Blender scenes through deterministic ty
 # Blender Control
 
 1. Call `blender_scene_query` once and retain its `document_revision`.
-2. For Rhino handoffs, call `rhino_export_scene` once with a new absolute `.fbx` path under the active workspace and `expected_units: Meters`; retain its completed export receipt. Never ask the operator to export manually and never pass `.3dm` directly to Blender.
+2. For Rhino handoffs, call `rhino_export_scene` once with a new absolute `.glb` path under the active workspace and `expected_units: Meters`; GLB uses Rhino's dedicated deterministic glTF writer. Retain its completed export receipt. Never ask the operator to export manually and never pass `.3dm` directly to Blender.
 3. Call `blender_validate_handoff` with that receipt and the source IDs/layers before importing anything.
 4. Express the complete change as one `blender_apply_operations` batch with a stable unique idempotency key. Dry-run unfamiliar operation shapes first.
 5. Query the scene again and inspect the intended outputs.

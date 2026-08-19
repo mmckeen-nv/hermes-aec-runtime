@@ -7,7 +7,7 @@ param(
     [switch]$EnableLegacyFallback,
     [switch]$EnableBlender,
     [switch]$SkipRhinoMCPInstall,
-    [string]$RhinoMCPVersion = "0.4.0-aec.3"
+    [string]$RhinoMCPVersion = "0.4.0-aec.4"
 )
 
 $ErrorActionPreference = "Stop"

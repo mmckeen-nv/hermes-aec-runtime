@@ -173,15 +173,15 @@ class RhinoMCPGateway:
             return await self.transport.call(command, params or {})
 
     async def export_scene(self, path: str, *, expected_units: str = "Meters") -> dict[str, Any]:
-        """Export one non-overwriting FBX handoff through Rhino's native exporter."""
+        """Export one non-overwriting GLB/FBX handoff through Rhino's native exporter."""
         if not isinstance(path, str) or not path.strip() or len(path) > 4096 or "\x00" in path:
             raise ValueError("path must be a non-empty filesystem path")
         export_path = Path(path).expanduser()
         if not export_path.is_absolute():
             raise ValueError("export path must be absolute")
         export_path = export_path.resolve()
-        if export_path.suffix.lower() != ".fbx":
-            raise ValueError("only .fbx export is supported")
+        if export_path.suffix.lower() not in {".glb", ".fbx"}:
+            raise ValueError("only .glb and .fbx export are supported")
         if not export_path.parent.is_dir():
             raise ValueError(f"export directory does not exist: {export_path.parent}")
         if export_path.exists():
@@ -207,7 +207,7 @@ class RhinoMCPGateway:
             except RhinoMCPAmbiguousWrite:
                 if not export_path.is_file() or export_path.stat().st_size <= 0:
                     raise
-                result = {"path": str(export_path), "format": "fbx", "bytes": export_path.stat().st_size,
+                result = {"path": str(export_path), "format": export_path.suffix.lower()[1:], "bytes": export_path.stat().st_size,
                           "units": "Meters"}
                 reconciled = True
             returned_path = Path(str(result.get("path") or "")).resolve()
@@ -215,6 +215,47 @@ class RhinoMCPGateway:
                 raise RhinoMCPTransportError("Rhino returned an invalid export receipt")
             return {"status": "completed", "transport": "rhinomcp-direct", "reconciled": reconciled,
                     **result, "path": str(export_path)}
+
+    async def open_working_document(self, path: str) -> dict[str, Any]:
+        """Open one existing non-master 3DM working copy after a Rhino restart."""
+        if not isinstance(path, str) or not path.strip() or len(path) > 4096 or "\x00" in path:
+            raise ValueError("path must be a non-empty filesystem path")
+        document_path = Path(path).expanduser()
+        if not document_path.is_absolute():
+            raise ValueError("document path must be absolute")
+        document_path = document_path.resolve()
+        if document_path.suffix.lower() != ".3dm" or not document_path.is_file():
+            raise ValueError("working document must be an existing .3dm file")
+        protected = document_path.name.upper()
+        if "MASTER" in protected or "HERO" in protected:
+            raise ValueError("refusing to open a protected MASTER or HERO document as a working file")
+        async with self._lock:
+            capabilities = await self.transport.call("describe_capabilities", {})
+            advertised = {
+                str(item.get("name")) if isinstance(item, Mapping) else str(item)
+                for item in capabilities.get("commands", [])
+            }
+            if "open_working_document" not in advertised:
+                raise RhinoMCPCommandError(
+                    "active AEC RhinoMCP plugin does not advertise open_working_document; restart Rhino after installing the updated plugin"
+                )
+            try:
+                result = await self.transport.call("open_working_document", {"path": str(document_path)})
+                reconciled = False
+            except RhinoMCPAmbiguousWrite:
+                summary = await self.transport.call("get_document_summary", {})
+                active_path = str((summary.get("meta_data") or {}).get("path") or "")
+                if not active_path or Path(active_path).resolve() != document_path:
+                    raise
+                result = {"path": str(document_path), "already_open": True,
+                          "object_count": summary.get("object_count"),
+                          "units": (summary.get("meta_data") or {}).get("units")}
+                reconciled = True
+            if Path(str(result.get("path") or "")).resolve() != document_path:
+                raise RhinoMCPTransportError("Rhino returned an invalid open-document receipt")
+            self._scene_cache = None
+            return {"status": "completed", "transport": "rhinomcp-direct", "reconciled": reconciled,
+                    **result, "path": str(document_path)}
 
     async def scene_index(self, *, page_size: int = 500, max_objects: int = 10000, cache_seconds: float = 2.0) -> dict[str, Any]:
         if page_size < 1 or page_size > 2000 or max_objects < 1:

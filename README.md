@@ -8,7 +8,8 @@ The normal Rhino surface is:
 - `aec_runtime_health` — report storage readiness and optionally prove a host can answer a bounded read.
 - `rhino_scene_query` — find objects and obtain stable IDs, units, and document revision.
 - `rhino_apply_operations` — apply one idempotent batch of typed geometry operations.
-- `rhino_export_scene` — create a verified, non-overwriting metre-scale FBX handoff for Blender.
+- `rhino_export_scene` — create a verified, non-overwriting metre-scale GLB handoff for Blender.
+- `rhino_open_working_document` — safely reopen a timestamped working 3DM after Rhino restarts.
 - `rhino_verify_transaction` — verify the resulting model delta and assertions.
 
 Raw Rhino scripting and foreground computer control are not part of the normal workflow.

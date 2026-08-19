@@ -71,6 +71,7 @@ class FakeTransport:
         self.calls = []
         self.ambiguous_create = False
         self.compatible = True
+        self.document_path = ""
 
     async def call(self, command, params=None, **_):
         params = params or {}; self.calls.append((command, params))
@@ -78,10 +79,10 @@ class FakeTransport:
             return {
                 "version": "0.4.0-aec.1",
                 "protocol_version": "aec-rhinomcp/1" if self.compatible else None,
-                "commands": ["create_object", "delete_object", "transform_object_in_place", "duplicate_object", "export_scene"],
+                "commands": ["create_object", "delete_object", "transform_object_in_place", "duplicate_object", "export_scene", "open_working_document"],
             }
         if command == "get_document_summary":
-            return {"meta_data": {"name": "Test", "units": "Millimeters"}, "object_count": len(self.objects)}
+            return {"meta_data": {"name": "Test", "path": self.document_path, "units": "Millimeters"}, "object_count": len(self.objects)}
         if command == "get_objects":
             start, limit = params.get("offset", 0), params.get("limit", 500)
             return {"objects": self.objects[start:start + limit], "total_matching": len(self.objects)}
@@ -109,12 +110,16 @@ class FakeTransport:
             target.write_bytes(b"Kaydara FBX Binary")
             return {"path": str(target), "format": "fbx", "bytes": target.stat().st_size,
                     "units": params["expected_units"], "object_count": len(self.objects)}
+        if command == "open_working_document":
+            self.document_path = params["path"]
+            return {"path": self.document_path, "already_open": False, "object_count": len(self.objects),
+                    "units": "Meters", "tolerance": 0.001}
         raise AssertionError(command)
 
 
 def test_export_scene_is_typed_non_overwriting_and_receipted(tmp_path):
     fake = FakeTransport()
-    target = (tmp_path / "house.fbx").resolve()
+    target = (tmp_path / "house.glb").resolve()
     receipt = asyncio.run(RhinoMCPGateway(fake).export_scene(str(target)))
     assert receipt["status"] == "completed"
     assert receipt["path"] == str(target)
@@ -132,6 +137,19 @@ def test_export_scene_rejects_relative_or_wrong_format_without_transport(tmp_pat
     with pytest.raises(ValueError, match="fbx"):
         asyncio.run(gateway.export_scene(str((tmp_path / "house.obj").resolve())))
     assert fake.calls == []
+
+
+def test_open_working_document_rejects_master_and_returns_receipt(tmp_path):
+    fake = FakeTransport()
+    working = (tmp_path / "cliff_house_quick_working.3dm").resolve()
+    working.write_bytes(b"3D Geometry File Format")
+    receipt = asyncio.run(RhinoMCPGateway(fake).open_working_document(str(working)))
+    assert receipt["status"] == "completed"
+    assert receipt["path"] == str(working)
+    master = (tmp_path / "cliff_house_MASTER.3dm").resolve()
+    master.write_bytes(b"protected")
+    with pytest.raises(ValueError, match="protected"):
+        asyncio.run(RhinoMCPGateway(fake).open_working_document(str(master)))
 
 
 def test_stable_transform_reports_content_proven_modified_id():
