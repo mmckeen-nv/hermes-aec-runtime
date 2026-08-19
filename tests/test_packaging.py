@@ -39,7 +39,7 @@ def test_release_metadata_versions_match():
     package = (ROOT / "src" / "hermes_aec_runtime" / "__init__.py").read_text(encoding="utf-8")
     project_version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE).group(1)
     package_version = re.search(r'^__version__ = "([^"]+)"$', package, re.MULTILINE).group(1)
-    assert project_version == package_version == "0.8.18"
+    assert project_version == package_version == "0.8.19"
 
 
 def test_registration_exposes_typed_surface_without_direct_host_escape():
@@ -79,7 +79,9 @@ def test_packaging_has_versioned_config_and_lifecycle_commands():
     assert 'HKCU:\\Software\\McNeel\\Rhinoceros\\8.0\\Plug-ins\\$PluginGuid' in plugin_installer
     assert 'New-ItemProperty -Path $RegistryPluginPath -Name "FileName"' in plugin_installer
     assert 'New-ItemProperty -Path $RegistryPath -Name "FileName"' in plugin_installer
-    assert 'Get-ItemPropertyValue -Path $RegistryPath -Name "FileName"' in doctor
+    assert '$RegistryPluginPath = Join-Path $RegistryPath "PlugIn"' in doctor
+    assert "foreach ($CandidatePath in @($RegistryPath, $RegistryPluginPath))" in doctor
+    assert 'Get-ItemPropertyValue -Path $CandidatePath -Name "FileName"' in doctor
     assert "RHINOMCP_COMMANDS_REGISTERED" in plugin_installer
 
 
