@@ -2,6 +2,12 @@
 
 The Blender adapter is a visualization and handoff layer, not an architectural source of truth. It accepts typed transactions for import, collection organization, transforms, materials, cameras, lights, rendering, and saving.
 
+For the standard demo hero render, use `blender_render_archviz`: one stable call owns camera targeting,
+sun and fill lighting, render settings, PNG creation, `.blend` persistence, and visible presentation.
+Use `blender_apply_operations` only for custom Blender work; its MCP input is a discriminated union
+that publishes every supported operation and field. Cameras accept either `target` or
+`rotation_degrees`, never both.
+
 Reads are serialized and retried. Mutations are serialized but never blindly retried: a lost response returns `unknown`, requiring scene reconciliation with the same idempotency key. Completed receipts are replayed locally for duplicate suppression.
 
 Rhino handoff manifests must declare source IDs, layers, source units, and the exported interchange file. Supported unit conversions are explicit; a missing unit is rejected to prevent the known meter/millimeter class of errors.

@@ -17,6 +17,7 @@ from .orchestrator import BlenderWorkflowGateway, FreeCADWorkflowGateway, RhinoW
 from .observability import ExecutionBudget, readiness, storage_ready
 from .rhinomcp_transport import RhinoMCPGateway
 from .operation_models import RhinoOperationInput, dump_operations
+from .blender_operation_models import BlenderOperationInput, dump_blender_operations
 from .scene_query_models import RhinoSceneQuery, normalize_scene_query
 from collections import Counter
 import base64
@@ -127,9 +128,46 @@ async def rhino_open_working_document(path: str) -> dict:
 
 
 @mcp.tool()
-async def blender_apply_operations(intent: str, operations: list[dict], idempotency_key: str, dry_run: bool = False) -> dict:
-    """Compile and apply one typed Blender transaction through the standard Blender MCP."""
-    return await _blender.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)
+async def blender_apply_operations(intent: str, operations: list[BlenderOperationInput], idempotency_key: str, dry_run: bool = False) -> dict:
+    """Apply exact typed Blender operations. Prefer blender_render_archviz for the standard demo render."""
+    return await _blender.execute(intent=intent, operations=dump_blender_operations(operations), idempotency_key=idempotency_key, dry_run=dry_run)
+
+
+@mcp.tool()
+async def blender_render_archviz(
+    output_path: str,
+    blend_path: str,
+    idempotency_key: str,
+    camera_location: tuple[float, float, float] = (28.0, -32.0, 22.0),
+    camera_target: tuple[float, float, float] = (5.0, -2.0, 3.0),
+    lens_mm: float = 48.0,
+    resolution: tuple[int, int] = (768, 512),
+    samples: int = 32,
+) -> dict:
+    """Aim a camera, light the imported model, render one PNG, save the .blend, and present Blender."""
+    output = Path(output_path)
+    blend = Path(blend_path)
+    if not output.is_absolute() or output.suffix.lower() != ".png":
+        raise ValueError("output_path must be an absolute .png path")
+    if not blend.is_absolute() or blend.suffix.lower() != ".blend":
+        raise ValueError("blend_path must be an absolute .blend path")
+    if output.exists() and not _blender.has_receipt(idempotency_key):
+        raise ValueError("output_path already exists")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    blend.parent.mkdir(parents=True, exist_ok=True)
+    return await _blender.execute(
+        intent="Create and render a verified architectural hero view",
+        operations=[
+            {"op": "create_camera", "id": "hero_camera", "name": "AEC Hero Camera", "location": camera_location, "target": camera_target, "lens_mm": lens_mm},
+            {"op": "create_light", "id": "sun", "name": "AEC Sun", "type": "SUN", "location": (0, 0, 30), "rotation_degrees": (28, -18, -35), "energy": 3.0},
+            {"op": "create_light", "id": "fill", "name": "AEC Fill", "type": "AREA", "location": (8, -12, 20), "rotation_degrees": (20, 0, 25), "energy": 1800.0},
+            {"op": "render_settings", "id": "settings", "engine": "BLENDER_EEVEE_NEXT", "resolution": resolution, "samples": samples},
+            {"op": "render", "id": "render", "path": str(output)},
+            {"op": "save_blend", "id": "save", "path": str(blend)},
+            {"op": "present_scene", "id": "present"},
+        ],
+        idempotency_key=idempotency_key,
+    )
 
 
 @mcp.tool()

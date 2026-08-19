@@ -37,6 +37,17 @@ def test_import_accepts_validated_handoff_scale_alias_and_applies_it_to_new_obje
     assert "component*op[\"unit_scale\"]" in compiled.script
 
 
+def test_camera_target_is_typed_and_compiles_to_look_at_rotation():
+    compiled = compile_blender_transaction([{
+        "op": "create_camera", "id": "hero", "name": "Hero", "location": [20, -20, 15],
+        "target": [5, 0, 3], "lens_mm": 48,
+    }])
+    camera = compiled.normalized["operations"][0]
+    assert camera["target"] == [5.0, 0.0, 3.0]
+    assert "rotation_degrees" not in camera
+    assert 'to_track_quat("-Z","Y")' in compiled.script
+
+
 def test_eevee_engine_is_selected_across_blender_versions():
     compiled = compile_blender_transaction([{"op": "render_settings", "engine": "BLENDER_EEVEE_NEXT"}])
     assert '"BLENDER_EEVEE_NEXT":"BLENDER_EEVEE"' in compiled.script

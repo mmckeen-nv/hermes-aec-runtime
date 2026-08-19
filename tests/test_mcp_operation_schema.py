@@ -1,5 +1,6 @@
 from hermes_aec_runtime.mcp_server import mcp
 from hermes_aec_runtime.operation_models import CreateBox, SetAttributes, dump_operations
+from hermes_aec_runtime.blender_operation_models import CreateCamera, dump_blender_operations
 
 
 def test_rhino_tool_publishes_discriminated_operation_contract():
@@ -32,3 +33,19 @@ def test_set_attributes_accepts_rgb_and_rgba_with_bounded_channels():
     assert "maxItems': 3" in rendered
     assert "maxItems': 4" in rendered
     assert "maximum': 255" in rendered
+
+
+def test_blender_tool_publishes_discriminated_operation_contract():
+    schema = mcp._tool_manager.get_tool("blender_apply_operations").parameters
+    item = schema["properties"]["operations"]["items"]
+    rendered = str(item)
+    assert "discriminator" in item
+    assert "create_camera" in rendered
+    assert "render_settings" in rendered
+    camera = schema["$defs"]["CreateCamera"]["properties"]
+    assert {"name", "location", "target", "rotation_degrees", "lens_mm"} <= set(camera)
+
+    dumped = dump_blender_operations([CreateCamera(
+        op="create_camera", name="Hero", location=(20, -20, 15), target=(5, 0, 3), lens_mm=48,
+    )])
+    assert dumped[0]["target"] == (5.0, 0.0, 3.0)

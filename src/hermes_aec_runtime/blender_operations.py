@@ -33,7 +33,7 @@ _FIELDS = {
     "transform": {"op", "id", "objects", "location", "rotation_degrees", "scale"},
     "delete_objects": {"op", "id", "objects"},
     "assign_material": {"op", "id", "objects", "material", "base_color", "metallic", "roughness"},
-    "create_camera": {"op", "id", "name", "location", "rotation_degrees", "lens_mm"},
+    "create_camera": {"op", "id", "name", "location", "target", "rotation_degrees", "lens_mm"},
     "create_light": {"op", "id", "name", "type", "location", "rotation_degrees", "energy"},
     "render_settings": {"op", "id", "engine", "resolution", "samples"},
     "save_blend": {"op", "id", "path"}, "render": {"op", "id", "path"},
@@ -121,7 +121,10 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
                 raise BlenderOperationError(f"{path}: metallic and roughness must be 0..1")
         elif kind == "create_camera":
             op["name"] = _text(raw.get("name"), f"{path}.name"); op["location"] = _vec(raw.get("location"), f"{path}.location")
-            op["rotation_degrees"] = _vec(raw.get("rotation_degrees", [0, 0, 0]), f"{path}.rotation_degrees")
+            if "target" in raw and "rotation_degrees" in raw:
+                raise BlenderOperationError(f"{path}: specify target or rotation_degrees, not both")
+            if "target" in raw: op["target"] = _vec(raw["target"], f"{path}.target")
+            else: op["rotation_degrees"] = _vec(raw.get("rotation_degrees", [0, 0, 0]), f"{path}.rotation_degrees")
             op["lens_mm"] = _number(raw.get("lens_mm", 50), f"{path}.lens_mm", positive=True)
         elif kind == "create_light":
             op["name"] = _text(raw.get("name"), f"{path}.name"); op["type"] = str(raw.get("type", "AREA")).upper()
@@ -159,6 +162,7 @@ def compile_blender_transaction(operations: Sequence[Mapping[str, Any]]) -> Comp
 
 
 _SCRIPT = r'''import bpy, json, math, os
+from mathutils import Vector
 ops=json.loads(__OPS__); changed=[]
 def objects(names):
     missing=[n for n in names if n not in bpy.data.objects]
@@ -200,7 +204,12 @@ for op in ops:
         for obj in objects(op["objects"]): obj.data.materials.clear(); obj.data.materials.append(mat); changed.append(obj.name)
     elif kind in ("create_camera","create_light"):
         data=bpy.data.cameras.new(op["name"]) if kind=="create_camera" else bpy.data.lights.new(op["name"],op["type"])
-        obj=bpy.data.objects.new(op["name"],data); bpy.context.scene.collection.objects.link(obj); obj.location=op["location"]; obj.rotation_euler=[math.radians(x) for x in op["rotation_degrees"]]
+        obj=bpy.data.objects.new(op["name"],data); bpy.context.scene.collection.objects.link(obj); obj.location=op["location"]
+        if kind=="create_camera" and "target" in op:
+            direction=Vector(op["target"])-obj.location
+            if direction.length < 1e-9: raise ValueError("camera target must differ from location")
+            obj.rotation_euler=direction.to_track_quat("-Z","Y").to_euler()
+        else: obj.rotation_euler=[math.radians(x) for x in op["rotation_degrees"]]
         if kind=="create_camera": data.lens=op["lens_mm"]; bpy.context.scene.camera=obj
         else: data.energy=op["energy"]
         changed.append(obj.name)

@@ -14,12 +14,14 @@ def test_routes_rendering_to_blender():
     assert route.intent is Intent.VISUALIZE
     assert route.host == "blender"
     assert route.tools[0] == "blender_scene_query"
+    assert "blender_render_archviz" in route.tools
 
 
 def test_routes_full_visualization_delivery_through_typed_handoff_and_comfyui():
     route = route_request("Export Rhino to Blender, render, and stylize it in ComfyUI")
     assert route.intent is Intent.HANDOFF
     assert "blender_import_handoff" in route.tools
+    assert "blender_render_archviz" in route.tools
     assert route.tools[-2:] == ("comfyui_health", "comfyui_stylize_image")
     assert "comfyui_delivery" in route.stages
 
