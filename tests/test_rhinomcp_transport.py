@@ -2,6 +2,7 @@ import asyncio
 import json
 import socket
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -77,7 +78,7 @@ class FakeTransport:
             return {
                 "version": "0.4.0-aec.1",
                 "protocol_version": "aec-rhinomcp/1" if self.compatible else None,
-                "commands": ["create_object", "delete_object", "transform_object_in_place", "duplicate_object"],
+                "commands": ["create_object", "delete_object", "transform_object_in_place", "duplicate_object", "export_scene"],
             }
         if command == "get_document_summary":
             return {"meta_data": {"name": "Test", "units": "Millimeters"}, "object_count": len(self.objects)}
@@ -103,7 +104,34 @@ class FakeTransport:
             copy = {**source, "id": "22222222-2222-2222-2222-222222222222"}
             self.objects.append(copy)
             return dict(copy)
+        if command == "export_scene":
+            target = Path(params["path"])
+            target.write_bytes(b"Kaydara FBX Binary")
+            return {"path": str(target), "format": "fbx", "bytes": target.stat().st_size,
+                    "units": params["expected_units"], "object_count": len(self.objects)}
         raise AssertionError(command)
+
+
+def test_export_scene_is_typed_non_overwriting_and_receipted(tmp_path):
+    fake = FakeTransport()
+    target = (tmp_path / "house.fbx").resolve()
+    receipt = asyncio.run(RhinoMCPGateway(fake).export_scene(str(target)))
+    assert receipt["status"] == "completed"
+    assert receipt["path"] == str(target)
+    assert receipt["units"] == "Meters"
+    assert target.read_bytes() == b"Kaydara FBX Binary"
+    with pytest.raises(ValueError, match="overwrite"):
+        asyncio.run(RhinoMCPGateway(fake).export_scene(str(target)))
+
+
+def test_export_scene_rejects_relative_or_wrong_format_without_transport(tmp_path):
+    fake = FakeTransport()
+    gateway = RhinoMCPGateway(fake)
+    with pytest.raises(ValueError, match="absolute"):
+        asyncio.run(gateway.export_scene("house.fbx"))
+    with pytest.raises(ValueError, match="fbx"):
+        asyncio.run(gateway.export_scene(str((tmp_path / "house.obj").resolve())))
+    assert fake.calls == []
 
 
 def test_stable_transform_reports_content_proven_modified_id():

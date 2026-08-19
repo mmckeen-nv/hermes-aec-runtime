@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.4.0-aec.2",
+    [string]$Version = "0.4.0-aec.3",
     [switch]$SkipInstall,
     [string]$PluginRoot = (Join-Path $env:APPDATA "McNeel\Rhinoceros\8.0\Plug-ins")
 )

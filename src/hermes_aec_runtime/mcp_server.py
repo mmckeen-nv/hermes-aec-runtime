@@ -113,6 +113,12 @@ async def blender_scene_query() -> dict:
 
 
 @mcp.tool()
+async def rhino_export_scene(path: str, expected_units: str = "Meters") -> dict:
+    """Export the active Rhino document to a new absolute .fbx path, refusing overwrite and unit mismatch."""
+    return await _rhino_direct.export_scene(path, expected_units=expected_units)
+
+
+@mcp.tool()
 async def blender_apply_operations(intent: str, operations: list[dict], idempotency_key: str, dry_run: bool = False) -> dict:
     """Compile and apply one typed Blender transaction through the standard Blender MCP."""
     return await _blender.execute(intent=intent, operations=operations, idempotency_key=idempotency_key, dry_run=dry_run)

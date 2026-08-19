@@ -57,6 +57,7 @@ foreach ($Name in $Profile) {
         "        - rhino_apply_operations",
         "        - rhino_verify_transaction",
         "        - rhino_health"
+        "        - rhino_export_scene"
         "        - rhino_viewport_state"
         "        - rhino_viewport_zoom_extents"
         "        - rhino_viewport_set_camera"

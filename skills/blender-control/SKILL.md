@@ -6,9 +6,10 @@ description: Inspect, modify, and verify Blender scenes through deterministic ty
 # Blender Control
 
 1. Call `blender_scene_query` once and retain its `document_revision`.
-2. For Rhino handoffs, call `blender_validate_handoff` before importing anything.
-3. Express the complete change as one `blender_apply_operations` batch with a stable unique idempotency key. Dry-run unfamiliar operation shapes first.
-4. Query the scene again and inspect the intended outputs.
-5. Call `blender_proof_and_recovery` with the receipt. If the status is unknown, reconcile before any retry and reuse the same key.
+2. For Rhino handoffs, call `rhino_export_scene` once with a new absolute `.fbx` path under the active workspace and `expected_units: Meters`; retain its completed export receipt. Never ask the operator to export manually and never pass `.3dm` directly to Blender.
+3. Call `blender_validate_handoff` with that receipt and the source IDs/layers before importing anything.
+4. Express the complete change as one `blender_apply_operations` batch with a stable unique idempotency key. Dry-run unfamiliar operation shapes first.
+5. Query the scene again and inspect the intended outputs.
+6. Call `blender_proof_and_recovery` with the receipt. If the status is unknown, reconcile before any retry and reuse the same key.
 
 Never use computer control or expose generated Python when these typed tools cover the request.

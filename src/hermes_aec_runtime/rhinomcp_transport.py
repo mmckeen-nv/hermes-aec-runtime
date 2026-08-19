@@ -12,6 +12,7 @@ import os
 import socket
 from dataclasses import dataclass, field
 from hashlib import sha256
+from pathlib import Path
 from time import monotonic, perf_counter
 from typing import Any, Awaitable, Callable, Mapping
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -170,6 +171,50 @@ class RhinoMCPGateway:
             if command not in advertised:
                 raise RhinoMCPCommandError(f"active AEC RhinoMCP plugin does not advertise {command}; restart Rhino after installing the updated plugin")
             return await self.transport.call(command, params or {})
+
+    async def export_scene(self, path: str, *, expected_units: str = "Meters") -> dict[str, Any]:
+        """Export one non-overwriting FBX handoff through Rhino's native exporter."""
+        if not isinstance(path, str) or not path.strip() or len(path) > 4096 or "\x00" in path:
+            raise ValueError("path must be a non-empty filesystem path")
+        export_path = Path(path).expanduser()
+        if not export_path.is_absolute():
+            raise ValueError("export path must be absolute")
+        export_path = export_path.resolve()
+        if export_path.suffix.lower() != ".fbx":
+            raise ValueError("only .fbx export is supported")
+        if not export_path.parent.is_dir():
+            raise ValueError(f"export directory does not exist: {export_path.parent}")
+        if export_path.exists():
+            raise ValueError(f"refusing to overwrite existing export: {export_path}")
+        if not isinstance(expected_units, str) or expected_units.lower() != "meters":
+            raise ValueError("expected_units must be Meters for the Rhino-to-Blender handoff")
+
+        async with self._lock:
+            capabilities = await self.transport.call("describe_capabilities", {})
+            advertised = {
+                str(item.get("name")) if isinstance(item, Mapping) else str(item)
+                for item in capabilities.get("commands", [])
+            }
+            if "export_scene" not in advertised:
+                raise RhinoMCPCommandError(
+                    "active AEC RhinoMCP plugin does not advertise export_scene; restart Rhino after installing the updated plugin"
+                )
+            try:
+                result = await self.transport.call(
+                    "export_scene", {"path": str(export_path), "expected_units": "Meters"}
+                )
+                reconciled = False
+            except RhinoMCPAmbiguousWrite:
+                if not export_path.is_file() or export_path.stat().st_size <= 0:
+                    raise
+                result = {"path": str(export_path), "format": "fbx", "bytes": export_path.stat().st_size,
+                          "units": "Meters"}
+                reconciled = True
+            returned_path = Path(str(result.get("path") or "")).resolve()
+            if returned_path != export_path or int(result.get("bytes") or 0) <= 0:
+                raise RhinoMCPTransportError("Rhino returned an invalid export receipt")
+            return {"status": "completed", "transport": "rhinomcp-direct", "reconciled": reconciled,
+                    **result, "path": str(export_path)}
 
     async def scene_index(self, *, page_size: int = 500, max_objects: int = 10000, cache_seconds: float = 2.0) -> dict[str, Any]:
         if page_size < 1 or page_size > 2000 or max_objects < 1:
