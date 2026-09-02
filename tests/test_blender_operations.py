@@ -50,6 +50,24 @@ def test_camera_target_is_typed_and_compiles_to_look_at_rotation():
     assert 'to_track_quat("-Z","Y")' in compiled.script
 
 
+def test_viewport_camera_is_typed_and_reads_live_3d_view():
+    compiled = compile_blender_transaction([{
+        "op": "create_camera_from_viewport", "id": "viewport", "name": "AEC Viewport Camera",
+    }])
+    camera = compiled.normalized["operations"][0]
+    assert camera["name"] == "AEC Viewport Camera"
+    assert 'area.type=="VIEW_3D"' in compiled.script
+    assert "region.view_matrix.inverted()" in compiled.script
+    assert "data.lens=space.lens" in compiled.script
+
+
+def test_present_scene_can_preserve_viewport_framing():
+    operation = normalize_blender_operations([{"op": "present_scene", "frame_all": False}])[0]
+    assert operation["frame_all"] is False
+    with pytest.raises(BlenderOperationError, match="must be a boolean"):
+        normalize_blender_operations([{"op": "present_scene", "frame_all": "false"}])
+
+
 def test_eevee_engine_is_selected_across_blender_versions():
     compiled = compile_blender_transaction([{"op": "render_settings", "engine": "BLENDER_EEVEE_NEXT"}])
     assert '"BLENDER_EEVEE_NEXT":"BLENDER_EEVEE"' in compiled.script

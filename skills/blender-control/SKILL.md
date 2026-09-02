@@ -15,6 +15,9 @@ description: Inspect, modify, and verify Blender scenes through deterministic ty
 For a standard render, call `blender_render_archviz` and choose exactly one managed `lighting_preset`:
 `daylight` by default, `golden_hour` for sunset/evening/warm requests, or `studio` for neutral
 material inspection. Never invent an HDRI path or use a loose downloaded environment file.
+Leave `camera_source=viewport` so the output matches the user's current Blender 3D viewport. Do not
+send fixed camera coordinates. Use `camera_source=explicit` only when the user explicitly requests
+numeric placement, and then provide both `camera_location` and `camera_target`.
 
 When the user asks which HDRIs, environments, or lighting presets are available, call
 `blender_list_hdri_files` and report its friendly names, purposes, and availability. Do not infer the

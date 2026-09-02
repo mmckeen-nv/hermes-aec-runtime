@@ -2,8 +2,11 @@
 
 The Blender adapter is a visualization and handoff layer, not an architectural source of truth. It accepts typed transactions for import, collection organization, transforms, materials, cameras, lights, rendering, and saving.
 
-For the standard demo hero render, use `blender_render_archviz`: one stable call owns camera targeting,
+For the standard demo render, use `blender_render_archviz`: one stable call captures the largest
+current 3D viewport in Blender as the render camera and owns camera setup,
 managed HDRI plus sun/fill lighting, render settings, PNG creation, `.blend` persistence, and visible presentation.
+This viewport behavior is the default. Use `camera_source=explicit` with both `camera_location` and
+`camera_target` only when the user specifically asks for numeric camera placement.
 Its `lighting_preset` is one of `daylight` (default architectural review), `golden_hour`
 (warm sunset/evening requests), or `studio` (neutral material inspection). The runtime resolves only
 the installer-managed, checksum-pinned library; callers never invent HDRI paths.

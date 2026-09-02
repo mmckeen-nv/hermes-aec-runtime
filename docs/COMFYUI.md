@@ -5,7 +5,9 @@ does not submit ComfyUI operations through the Blender transaction compiler.
 
 The normal sequence is:
 
-1. Render a non-empty PNG through `blender_render_archviz`. Use `blender_apply_operations` only for a custom scene setup; its MCP schema enumerates every supported operation and field.
+1. Render a non-empty PNG through `blender_render_archviz`. Its default viewport camera captures the
+   user's current largest Blender 3D viewport and does not reframe that viewport afterward. Use
+   `blender_apply_operations` only for a custom scene setup; its MCP schema enumerates every supported operation and field.
 2. Call `comfyui_health`; require `status: ready` and a CUDA device.
 3. Call `comfyui_stylize_image` once with absolute input/output paths, a geometry-preserving prompt,
    fixed dimensions, seed, and one stable idempotency key.

@@ -1,6 +1,6 @@
 from hermes_aec_runtime.mcp_server import mcp
 from hermes_aec_runtime.operation_models import CreateBox, SetAttributes, dump_operations
-from hermes_aec_runtime.blender_operation_models import CreateCamera, dump_blender_operations
+from hermes_aec_runtime.blender_operation_models import CreateCamera, CreateCameraFromViewport, dump_blender_operations
 
 
 def test_rhino_tool_publishes_discriminated_operation_contract():
@@ -41,6 +41,7 @@ def test_blender_tool_publishes_discriminated_operation_contract():
     rendered = str(item)
     assert "discriminator" in item
     assert "create_camera" in rendered
+    assert "create_camera_from_viewport" in rendered
     assert "render_settings" in rendered
     camera = schema["$defs"]["CreateCamera"]["properties"]
     assert {"name", "location", "target", "rotation_degrees", "lens_mm"} <= set(camera)
@@ -49,3 +50,4 @@ def test_blender_tool_publishes_discriminated_operation_contract():
         op="create_camera", name="Hero", location=(20, -20, 15), target=(5, 0, 3), lens_mm=48,
     )])
     assert dumped[0]["target"] == (5.0, 0.0, 3.0)
+    assert dump_blender_operations([CreateCameraFromViewport(op="create_camera_from_viewport")])[0]["name"] == "AEC Viewport Camera"

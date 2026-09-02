@@ -70,6 +70,11 @@ class CreateCamera(_BlenderOperation):
         return self
 
 
+class CreateCameraFromViewport(_BlenderOperation):
+    op: Literal["create_camera_from_viewport"]
+    name: str = "AEC Viewport Camera"
+
+
 class CreateLight(_BlenderOperation):
     op: Literal["create_light"]
     name: str
@@ -105,12 +110,13 @@ class Render(_BlenderOperation):
 
 class PresentScene(_BlenderOperation):
     op: Literal["present_scene"]
+    frame_all: bool = True
 
 
 BlenderOperationInput: TypeAlias = Annotated[
     Union[
         ImportScene, EnsureCollection, Transform, DeleteObjects, AssignMaterial,
-        CreateCamera, CreateLight, SetWorldHdri, RenderSettings, SaveBlend, Render, PresentScene,
+        CreateCamera, CreateCameraFromViewport, CreateLight, SetWorldHdri, RenderSettings, SaveBlend, Render, PresentScene,
     ],
     Field(discriminator="op"),
 ]

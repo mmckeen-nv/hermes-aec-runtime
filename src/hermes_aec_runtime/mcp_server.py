@@ -206,14 +206,15 @@ async def blender_render_archviz(
     output_path: str,
     blend_path: str,
     idempotency_key: str,
-    camera_location: tuple[float, float, float] = (28.0, -32.0, 22.0),
-    camera_target: tuple[float, float, float] = (5.0, -2.0, 3.0),
+    camera_source: Literal["viewport", "explicit"] = "viewport",
+    camera_location: tuple[float, float, float] | None = None,
+    camera_target: tuple[float, float, float] | None = None,
     lens_mm: float = 48.0,
     resolution: tuple[int, int] = (768, 512),
     samples: int = 32,
     lighting_preset: Literal["daylight", "golden_hour", "studio"] = "daylight",
 ) -> dict:
-    """Render with a managed HDRI preset: daylight for clear architectural review, golden_hour for warm evening requests, or studio for neutral material inspection."""
+    """Render from Blender's current 3D viewport by default, with a managed HDRI preset. Use camera_source=explicit only with camera_location and camera_target."""
     output = Path(output_path)
     blend = Path(blend_path)
     if not output.is_absolute() or output.suffix.lower() != ".png":
@@ -225,17 +226,25 @@ async def blender_render_archviz(
     output.parent.mkdir(parents=True, exist_ok=True)
     blend.parent.mkdir(parents=True, exist_ok=True)
     hdri_path, lighting = _managed_hdri_path(lighting_preset)
+    if camera_source == "explicit":
+        if camera_location is None or camera_target is None:
+            raise ValueError("camera_source=explicit requires camera_location and camera_target")
+        camera_operation = {"op": "create_camera", "id": "hero_camera", "name": "AEC Hero Camera", "location": camera_location, "target": camera_target, "lens_mm": lens_mm}
+    else:
+        if camera_location is not None or camera_target is not None:
+            raise ValueError("camera_location and camera_target require camera_source=explicit")
+        camera_operation = {"op": "create_camera_from_viewport", "id": "hero_camera", "name": "AEC Viewport Camera"}
     return await _blender.execute(
-        intent=f"Create and render a verified architectural hero view with the managed {lighting_preset} HDRI preset",
+        intent=f"Create and render a verified architectural view from the {camera_source} camera with the managed {lighting_preset} HDRI preset",
         operations=[
             {"op": "set_world_hdri", "id": "world_hdri", "path": str(hdri_path), "strength": lighting["strength"], "rotation_degrees": lighting["rotation_degrees"]},
-            {"op": "create_camera", "id": "hero_camera", "name": "AEC Hero Camera", "location": camera_location, "target": camera_target, "lens_mm": lens_mm},
+            camera_operation,
             {"op": "create_light", "id": "sun", "name": "AEC Sun", "type": "SUN", "location": (0, 0, 30), "rotation_degrees": lighting["sun_rotation"], "energy": lighting["sun_energy"]},
             {"op": "create_light", "id": "fill", "name": "AEC Fill", "type": "AREA", "location": (8, -12, 20), "rotation_degrees": (20, 0, 25), "energy": lighting["fill_energy"]},
             {"op": "render_settings", "id": "settings", "engine": "BLENDER_EEVEE_NEXT", "resolution": resolution, "samples": samples},
             {"op": "render", "id": "render", "path": str(output)},
             {"op": "save_blend", "id": "save", "path": str(blend)},
-            {"op": "present_scene", "id": "present"},
+            {"op": "present_scene", "id": "present", "frame_all": False},
         ],
         idempotency_key=idempotency_key,
     )

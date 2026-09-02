@@ -23,7 +23,7 @@ class CompiledBlenderTransaction:
 
 _KINDS = {
     "import_scene", "ensure_collection", "transform", "delete_objects", "assign_material",
-    "create_camera", "create_light", "set_world_hdri", "render_settings", "save_blend", "render", "present_scene",
+    "create_camera", "create_camera_from_viewport", "create_light", "set_world_hdri", "render_settings", "save_blend", "render", "present_scene",
 }
 _MAX_OPERATIONS = 256
 _MAX_TEXT = 4_096
@@ -34,11 +34,12 @@ _FIELDS = {
     "delete_objects": {"op", "id", "objects"},
     "assign_material": {"op", "id", "objects", "material", "base_color", "metallic", "roughness"},
     "create_camera": {"op", "id", "name", "location", "target", "rotation_degrees", "lens_mm"},
+    "create_camera_from_viewport": {"op", "id", "name"},
     "create_light": {"op", "id", "name", "type", "location", "rotation_degrees", "energy"},
     "set_world_hdri": {"op", "id", "path", "strength", "rotation_degrees"},
     "render_settings": {"op", "id", "engine", "resolution", "samples"},
     "save_blend": {"op", "id", "path"}, "render": {"op", "id", "path"},
-    "present_scene": {"op", "id"},
+    "present_scene": {"op", "id", "frame_all"},
 }
 
 
@@ -127,6 +128,8 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
             if "target" in raw: op["target"] = _vec(raw["target"], f"{path}.target")
             else: op["rotation_degrees"] = _vec(raw.get("rotation_degrees", [0, 0, 0]), f"{path}.rotation_degrees")
             op["lens_mm"] = _number(raw.get("lens_mm", 50), f"{path}.lens_mm", positive=True)
+        elif kind == "create_camera_from_viewport":
+            op["name"] = _text(raw.get("name", "AEC Viewport Camera"), f"{path}.name")
         elif kind == "create_light":
             op["name"] = _text(raw.get("name"), f"{path}.name"); op["type"] = str(raw.get("type", "AREA")).upper()
             if op["type"] not in {"POINT", "SUN", "SPOT", "AREA"}: raise BlenderOperationError(f"{path}.type: invalid light type")
@@ -155,7 +158,9 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
             if suffix != expected if isinstance(expected, str) else suffix not in expected:
                 raise BlenderOperationError(f"{path}.path: invalid output extension")
         elif kind == "present_scene":
-            pass
+            frame_all = raw.get("frame_all", True)
+            if not isinstance(frame_all, bool): raise BlenderOperationError(f"{path}.frame_all: must be a boolean")
+            op["frame_all"] = frame_all
         result.append(op); aliases.add(alias)
     return result
 
@@ -222,6 +227,25 @@ for op in ops:
         if kind=="create_camera": data.lens=op["lens_mm"]; bpy.context.scene.camera=obj
         else: data.energy=op["energy"]
         changed.append(obj.name)
+    elif kind=="create_camera_from_viewport":
+        windows=list(bpy.context.window_manager.windows)
+        active_window=bpy.context.window
+        if active_window in windows: windows.remove(active_window); windows.insert(0,active_window)
+        candidates=[]
+        for window in windows:
+            for area in window.screen.areas:
+                if area.type=="VIEW_3D": candidates.append((area.width*area.height,area))
+        if not candidates: raise RuntimeError("No visible Blender 3D viewport is available; open a 3D Viewport before rendering")
+        area=max(candidates,key=lambda item:item[0])[1]; space=area.spaces.active; region=space.region_3d
+        obj=bpy.data.objects.get(op["name"])
+        if obj and obj.type!="CAMERA": raise RuntimeError("Managed viewport camera name is already used by a non-camera object")
+        data=obj.data if obj else bpy.data.cameras.get(op["name"])
+        if not data: data=bpy.data.cameras.new(op["name"])
+        if not obj: obj=bpy.data.objects.new(op["name"],data); bpy.context.scene.collection.objects.link(obj)
+        obj.matrix_world=region.view_matrix.inverted(); data.lens=space.lens
+        if region.view_perspective=="ORTHO": data.type="ORTHO"; data.ortho_scale=max(region.view_distance*2.0,0.001)
+        else: data.type="PERSP"
+        bpy.context.scene.camera=obj; changed.append(obj.name)
     elif kind=="set_world_hdri":
         if not os.path.isfile(op["path"]): raise ValueError("HDRI file not found: "+op["path"])
         world=bpy.context.scene.world or bpy.data.worlds.new("AEC HDRI World")
@@ -251,15 +275,16 @@ for op in ops:
     elif kind=="render": bpy.context.scene.render.filepath=op["path"]; bpy.ops.render.render(write_still=True)
     elif kind=="present_scene":
         from mathutils import Vector
-        visible=[obj for obj in bpy.context.scene.objects if obj.type=="MESH" and not obj.hide_viewport]
-        corners=[obj.matrix_world @ Vector(corner) for obj in visible for corner in obj.bound_box]
-        if corners:
-            low=Vector((min(p.x for p in corners),min(p.y for p in corners),min(p.z for p in corners)))
-            high=Vector((max(p.x for p in corners),max(p.y for p in corners),max(p.z for p in corners)))
-            center=(low+high)*0.5; distance=max(high-low)*0.75
-            for window in bpy.context.window_manager.windows:
-                for area in window.screen.areas:
-                    if area.type=="VIEW_3D": area.spaces.active.region_3d.view_location=center; area.spaces.active.region_3d.view_distance=max(distance,1.0)
+        if op["frame_all"]:
+            visible=[obj for obj in bpy.context.scene.objects if obj.type=="MESH" and not obj.hide_viewport]
+            corners=[obj.matrix_world @ Vector(corner) for obj in visible for corner in obj.bound_box]
+            if corners:
+                low=Vector((min(p.x for p in corners),min(p.y for p in corners),min(p.z for p in corners)))
+                high=Vector((max(p.x for p in corners),max(p.y for p in corners),max(p.z for p in corners)))
+                center=(low+high)*0.5; distance=max(high-low)*0.75
+                for window in bpy.context.window_manager.windows:
+                    for area in window.screen.areas:
+                        if area.type=="VIEW_3D": area.spaces.active.region_3d.view_location=center; area.spaces.active.region_3d.view_distance=max(distance,1.0)
         if os.name=="nt":
             import ctypes
             pid=os.getpid(); handles=[]

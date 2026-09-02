@@ -47,7 +47,7 @@ def test_archviz_render_tool_assembles_one_known_good_transaction(tmp_path, monk
     (hdri_root / "quadrangle_cloudy_2k.hdr").write_bytes(b"test-hdri")
     monkeypatch.setenv("HERMES_AEC_HDRI_ROOT", str(hdri_root))
     result = asyncio.run(server.blender_render_archviz(
-        str(output), str(blend), "render-key", camera_location=(20, -20, 15), camera_target=(5, 0, 3),
+        str(output), str(blend), "render-key", camera_source="explicit", camera_location=(20, -20, 15), camera_target=(5, 0, 3),
     ))
     assert result["status"] == "completed"
     assert fake.values["idempotency_key"] == "render-key"
@@ -57,6 +57,46 @@ def test_archviz_render_tool_assembles_one_known_good_transaction(tmp_path, monk
     ]
     assert operations[0]["path"].endswith("quadrangle_cloudy_2k.hdr")
     assert operations[1]["target"] == (5, 0, 3)
+    assert operations[-1]["frame_all"] is False
+
+
+def test_archviz_render_uses_current_blender_viewport_by_default(tmp_path, monkeypatch):
+    class FakeBlender:
+        def has_receipt(self, key):
+            return False
+
+        async def execute(self, **values):
+            self.values = values
+            return {"status": "completed"}
+
+    fake = FakeBlender()
+    monkeypatch.setattr(server, "_blender", fake)
+    hdri_root = tmp_path / "hdri"
+    hdri_root.mkdir()
+    (hdri_root / "quadrangle_cloudy_2k.hdr").write_bytes(b"test-hdri")
+    monkeypatch.setenv("HERMES_AEC_HDRI_ROOT", str(hdri_root))
+
+    asyncio.run(server.blender_render_archviz(
+        str(tmp_path / "viewport.png"), str(tmp_path / "viewport.blend"), "viewport-key",
+    ))
+
+    camera = fake.values["operations"][1]
+    assert camera == {"op": "create_camera_from_viewport", "id": "hero_camera", "name": "AEC Viewport Camera"}
+    assert "viewport camera" in fake.values["intent"]
+
+
+def test_archviz_explicit_camera_requires_both_vectors(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_AEC_HDRI_ROOT", str(tmp_path))
+    (tmp_path / "quadrangle_cloudy_2k.hdr").write_bytes(b"test-hdri")
+    try:
+        asyncio.run(server.blender_render_archviz(
+            str(tmp_path / "bad.png"), str(tmp_path / "bad.blend"), "bad-key",
+            camera_source="explicit", camera_location=(1, 2, 3),
+        ))
+    except ValueError as exc:
+        assert "requires camera_location and camera_target" in str(exc)
+    else:
+        raise AssertionError("incomplete explicit camera must fail")
 
 
 def test_archviz_render_selects_managed_golden_hour_preset(tmp_path, monkeypatch):
