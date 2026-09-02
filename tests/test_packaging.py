@@ -40,7 +40,7 @@ def test_release_metadata_versions_match():
     package = (ROOT / "src" / "hermes_aec_runtime" / "__init__.py").read_text(encoding="utf-8")
     project_version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE).group(1)
     package_version = re.search(r'^__version__ = "([^"]+)"$', package, re.MULTILINE).group(1)
-    assert project_version == package_version == "0.8.20"
+    assert project_version == package_version == "0.8.21"
 
 
 def test_registration_exposes_typed_surface_without_direct_host_escape():
@@ -61,7 +61,7 @@ def test_packaging_has_versioned_config_and_lifecycle_commands():
     assert 'HERMES_AEC_RHINOMCP_PORT = "$RhinoPort"' in installer
     for filename in ("Doctor.ps1", "Install-RhinoMCP.ps1", "Uninstall.ps1", "doctor.sh", "uninstall.sh"):
         assert (ROOT / filename).is_file()
-    assert (ROOT / "vendor" / "aec-rhinomcp-0.4.0-aec.4-windows.zip").is_file()
+    assert (ROOT / "vendor" / "aec-rhinomcp-0.4.0-aec.5-windows.zip").is_file()
     plugin_installer = (ROOT / "Install-RhinoMCP.ps1").read_text(encoding="utf-8")
     assert "ca441fe8-afc4-43a4-bee5-53e65030d229" in plugin_installer
     assert "yak.exe" not in plugin_installer.casefold()
@@ -80,10 +80,12 @@ def test_packaging_has_versioned_config_and_lifecycle_commands():
     assert 'HKCU:\\Software\\McNeel\\Rhinoceros\\8.0\\Plug-ins\\$PluginGuid' in plugin_installer
     assert 'New-ItemProperty -Path $RegistryPluginPath -Name "FileName"' in plugin_installer
     assert 'New-ItemProperty -Path $RegistryPath -Name "FileName"' in plugin_installer
+    assert 'New-ItemProperty -Path $RegistryPath -Name "LoadMode" -Value 1' in plugin_installer
     assert '$RegistryPluginPath = Join-Path $RegistryPath "PlugIn"' in doctor
     assert "foreach ($CandidatePath in @($RegistryPath, $RegistryPluginPath))" in doctor
     assert 'Get-ItemPropertyValue -Path $CandidatePath -Name "FileName"' in doctor
     assert "RHINOMCP_COMMANDS_REGISTERED" in plugin_installer
+    assert "starts automatically" in plugin_installer
 
 
 def test_windows_scripts_are_compatible_with_windows_powershell_51():

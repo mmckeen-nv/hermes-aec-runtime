@@ -8,7 +8,7 @@ param(
     [switch]$EnableBlender,
     [switch]$EnableComfyUI,
     [switch]$SkipRhinoMCPInstall,
-    [string]$RhinoMCPVersion = "0.4.0-aec.4"
+    [string]$RhinoMCPVersion = "0.4.0-aec.5"
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,4 +87,4 @@ if (-not $SkipHermesRegistration) {
 }
 & (Join-Path $Root "Doctor.ps1") -RhinoPort $RhinoPort -AllowRhinoOffline
 Write-Host "HERMES_AEC_INSTALLED config_version=2 rhinomcp_port=$RhinoPort legacy_fallback=$(($EnableLegacyFallback -and -not $DisableLegacyFallback).ToString().ToLower()) blender=$($EnableBlender.ToString().ToLower()) comfyui=$($EnableComfyUI.ToString().ToLower())"
-Write-Host "Restart Hermes and Rhino. In Rhino run AECMCPStart, then use a demo shortcut."
+Write-Host "Restart Hermes and Rhino, then use a demo shortcut. AEC RhinoMCP starts automatically; AECMCPStart remains a manual repair command."

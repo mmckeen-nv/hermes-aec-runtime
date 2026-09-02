@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.4.0-aec.4",
+    [string]$Version = "0.4.0-aec.5",
     [switch]$SkipInstall,
     [string]$PluginRoot = (Join-Path $env:APPDATA "McNeel\Rhinoceros\8.0\Plug-ins")
 )
@@ -54,7 +54,9 @@ $RegistryPath = "HKCU:\Software\McNeel\Rhinoceros\8.0\Plug-ins\$PluginGuid"
 $RegistryPluginPath = Join-Path $RegistryPath "PlugIn"
 $RegistryCommandsPath = Join-Path $RegistryPath "CommandList"
 New-Item -Path $RegistryPath -Force | Out-Null
-New-ItemProperty -Path $RegistryPath -Name "LoadMode" -Value 2 -PropertyType DWord -Force | Out-Null
+# Load at Rhino startup. The plug-in starts its loopback listener from Rhino's
+# UI-idle/document-open lifecycle, so the demo never needs foreground SendKeys.
+New-ItemProperty -Path $RegistryPath -Name "LoadMode" -Value 1 -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "Type" -Value 16 -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "Name" -Value "aec-rhinomcp" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $RegistryPath -Name "FileName" -Value $Plugin -PropertyType String -Force | Out-Null
@@ -79,4 +81,4 @@ $Metadata = @{
 
 Write-Host "RHINOMCP_PLUGIN_READY distribution=mmckeen-nv/aec-rhinomcp version=$Version guid=$PluginGuid plugin=$Plugin"
 Write-Host "RHINOMCP_COMMANDS_REGISTERED discovery=root-filename commands=AECMCPStart,AECMCPStop,AECMCPTest,AECMCPVersion"
-Write-Host "Restart Rhino and run AECMCPStart. The verified listener must be 127.0.0.1:1999."
+Write-Host "Restart Rhino. AEC RhinoMCP now starts automatically on 127.0.0.1:1999; AECMCPStart remains available for manual repair."
