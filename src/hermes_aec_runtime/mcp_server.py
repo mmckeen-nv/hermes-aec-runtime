@@ -39,24 +39,31 @@ _workflow = WorkflowOrchestrator(
 
 _HDRI_PRESETS = {
     "daylight": {
+        "display_name": "Quadrangle Cloudy", "purpose": "clear exterior architectural review",
         "filename": "quadrangle_cloudy_2k.hdr", "strength": 0.85, "rotation_degrees": 110.0,
         "sun_rotation": (35.0, -20.0, -40.0), "sun_energy": 2.0, "fill_energy": 900.0,
     },
     "golden_hour": {
+        "display_name": "Safari Sunset", "purpose": "warm sunset and evening presentation",
         "filename": "safari_sunset_2k.hdr", "strength": 0.9, "rotation_degrees": 225.0,
         "sun_rotation": (65.0, -10.0, -120.0), "sun_energy": 3.5, "fill_energy": 700.0,
     },
     "studio": {
+        "display_name": "Studio Small 02", "purpose": "neutral material inspection",
         "filename": "studio_small_02_2k.hdr", "strength": 0.65, "rotation_degrees": 25.0,
         "sun_rotation": (28.0, -18.0, -35.0), "sun_energy": 1.0, "fill_energy": 1600.0,
     },
 }
 
 
+def _managed_hdri_root() -> Path:
+    configured = os.environ.get("HERMES_AEC_HDRI_ROOT")
+    return Path(configured) if configured else Path(os.environ.get("LOCALAPPDATA", Path.home())) / "hermes" / "integrations" / "blender-hdri" / "polyhaven-2k"
+
+
 def _managed_hdri_path(preset: str) -> tuple[Path, dict]:
     settings = _HDRI_PRESETS[preset]
-    configured = os.environ.get("HERMES_AEC_HDRI_ROOT")
-    root = Path(configured) if configured else Path(os.environ.get("LOCALAPPDATA", Path.home())) / "hermes" / "integrations" / "blender-hdri" / "polyhaven-2k"
+    root = _managed_hdri_root()
     path = root / settings["filename"]
     if not path.is_file():
         raise ValueError(f"Managed Blender HDRI preset '{preset}' is missing at {path}; rerun AEC deployment with Blender enabled")
@@ -139,6 +146,41 @@ def freecad_proof_and_recovery(receipt: dict) -> dict:
 async def blender_scene_query() -> dict:
     """Return a compact, revisioned index of the active Blender scene."""
     return await _blender.scene_preprocessing()
+
+
+@mcp.tool()
+def blender_list_hdri_files() -> dict:
+    """List the installed managed Blender HDRI files, friendly preset names, intended uses, and availability. Call this when the user asks which HDRIs or lighting environments are available."""
+    root = _managed_hdri_root()
+    presets = []
+    managed_names = set()
+    for preset, settings in _HDRI_PRESETS.items():
+        path = root / settings["filename"]
+        managed_names.add(settings["filename"].casefold())
+        presets.append({
+            "preset": preset,
+            "display_name": settings["display_name"],
+            "purpose": settings["purpose"],
+            "filename": settings["filename"],
+            "path": str(path),
+            "available": path.is_file(),
+            "size_bytes": path.stat().st_size if path.is_file() else None,
+        })
+    additional_files = []
+    if root.is_dir():
+        additional_files = [
+            {"filename": path.name, "path": str(path), "size_bytes": path.stat().st_size}
+            for path in sorted(root.iterdir(), key=lambda item: item.name.casefold())
+            if path.is_file() and path.suffix.casefold() in {".hdr", ".exr"} and path.name.casefold() not in managed_names
+        ]
+    return {
+        "library_root": str(root),
+        "library_available": root.is_dir(),
+        "license": "CC0-1.0",
+        "provider": "Poly Haven",
+        "presets": presets,
+        "additional_files": additional_files,
+    }
 
 
 @mcp.tool()

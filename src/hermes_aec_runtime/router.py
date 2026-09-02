@@ -87,13 +87,13 @@ def route_request(request: str, *, active_host: str = "rhino") -> RequestRoute:
         stages = ("scene_preprocessing", "handoff_validation", "blender_control", "proof_and_recovery")
         source_host = active_host.casefold()
         export_tools = ("rhino_export_scene",) if source_host == "rhino" else ()
-        tools = (f"{source_host}_scene_query",) + export_tools + ("blender_validate_handoff", "blender_import_handoff", "blender_scene_query", "blender_render_archviz", "blender_apply_operations", "blender_proof_and_recovery")
+        tools = (f"{source_host}_scene_query",) + export_tools + ("blender_validate_handoff", "blender_import_handoff", "blender_scene_query", "blender_list_hdri_files", "blender_render_archviz", "blender_apply_operations", "blender_proof_and_recovery")
         if wants_comfyui:
             stages += ("comfyui_delivery",)
             tools += ("comfyui_health", "comfyui_stylize_image")
     elif intent is Intent.VISUALIZE:
         stages = ("scene_preprocessing", "action_assembly", "blender_control", "proof_and_recovery")
-        tools = ("blender_scene_query", "blender_render_archviz", "blender_apply_operations", "blender_proof_and_recovery")
+        tools = ("blender_scene_query", "blender_list_hdri_files", "blender_render_archviz", "blender_apply_operations", "blender_proof_and_recovery")
         if wants_comfyui:
             stages += ("comfyui_delivery",)
             tools += ("comfyui_health", "comfyui_stylize_image")

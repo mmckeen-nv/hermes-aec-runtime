@@ -77,6 +77,7 @@ foreach ($Name in $Profile) {
     if ($EnableBlender) {
         $ToolLines += @(
             "        - blender_scene_query"
+            "        - blender_list_hdri_files"
             "        - blender_apply_operations"
             "        - blender_import_handoff"
             "        - blender_render_archviz"

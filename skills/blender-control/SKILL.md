@@ -16,4 +16,8 @@ For a standard render, call `blender_render_archviz` and choose exactly one mana
 `daylight` by default, `golden_hour` for sunset/evening/warm requests, or `studio` for neutral
 material inspection. Never invent an HDRI path or use a loose downloaded environment file.
 
+When the user asks which HDRIs, environments, or lighting presets are available, call
+`blender_list_hdri_files` and report its friendly names, purposes, and availability. Do not infer the
+installed library from memory or enumerate unrelated filesystem locations.
+
 Never use computer control or expose generated Python when these typed tools cover the request.

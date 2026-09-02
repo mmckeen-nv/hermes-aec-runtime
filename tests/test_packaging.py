@@ -16,6 +16,7 @@ TOOLS = {
     "rhino_apply_operations",
     "rhino_verify_transaction",
     "blender_scene_query",
+    "blender_list_hdri_files",
     "blender_apply_operations",
     "blender_render_archviz",
     "blender_validate_handoff",
@@ -40,7 +41,7 @@ def test_release_metadata_versions_match():
     package = (ROOT / "src" / "hermes_aec_runtime" / "__init__.py").read_text(encoding="utf-8")
     project_version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE).group(1)
     package_version = re.search(r'^__version__ = "([^"]+)"$', package, re.MULTILINE).group(1)
-    assert project_version == package_version == "0.8.22"
+    assert project_version == package_version == "0.8.23"
 
 
 def test_registration_exposes_typed_surface_without_direct_host_escape():

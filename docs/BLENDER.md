@@ -7,6 +7,9 @@ managed HDRI plus sun/fill lighting, render settings, PNG creation, `.blend` per
 Its `lighting_preset` is one of `daylight` (default architectural review), `golden_hour`
 (warm sunset/evening requests), or `studio` (neutral material inspection). The runtime resolves only
 the installer-managed, checksum-pinned library; callers never invent HDRI paths.
+Call `blender_list_hdri_files` whenever the user asks what HDRIs or lighting environments are
+available. It reports the managed preset name, display name, intended use, file availability, and any
+additional `.hdr` or `.exr` files placed directly in the managed library.
 Use `blender_apply_operations` only for custom Blender work; its MCP input is a discriminated union
 that publishes every supported operation and field. Cameras accept either `target` or
 `rotation_degrees`, never both.

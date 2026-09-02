@@ -10,7 +10,23 @@ def test_fast_path_and_all_typed_hosts_are_exposed():
     for host in ("rhino", "blender", "freecad"):
         assert f"{host}_scene_query" in tools
         assert f"{host}_apply_operations" in tools
-    assert {"blender_import_handoff", "blender_render_archviz", "comfyui_health", "comfyui_stylize_image"} <= tools
+    assert {"blender_import_handoff", "blender_list_hdri_files", "blender_render_archviz", "comfyui_health", "comfyui_stylize_image"} <= tools
+
+
+def test_hdri_listing_reports_managed_and_additional_files(tmp_path, monkeypatch):
+    (tmp_path / "quadrangle_cloudy_2k.hdr").write_bytes(b"daylight")
+    (tmp_path / "custom_environment.exr").write_bytes(b"custom")
+    monkeypatch.setenv("HERMES_AEC_HDRI_ROOT", str(tmp_path))
+
+    result = server.blender_list_hdri_files()
+
+    assert result["library_available"] is True
+    assert result["license"] == "CC0-1.0"
+    assert [item["preset"] for item in result["presets"]] == ["daylight", "golden_hour", "studio"]
+    assert result["presets"][0]["display_name"] == "Quadrangle Cloudy"
+    assert result["presets"][0]["available"] is True
+    assert result["presets"][1]["available"] is False
+    assert [item["filename"] for item in result["additional_files"]] == ["custom_environment.exr"]
 
 
 def test_archviz_render_tool_assembles_one_known_good_transaction(tmp_path, monkeypatch):
