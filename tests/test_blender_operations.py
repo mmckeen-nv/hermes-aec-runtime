@@ -13,6 +13,7 @@ def test_compiles_complete_visualization_batch():
         {"op": "assign_material", "objects": ["House"], "material": "Concrete", "base_color": [.5, .5, .5, 1]},
         {"op": "create_camera", "name": "Hero", "location": [10, -10, 8], "lens_mm": 35},
         {"op": "create_light", "name": "Sun", "type": "SUN", "energy": 4},
+        {"op": "set_world_hdri", "path": "daylight.hdr", "strength": 0.8, "rotation_degrees": 110},
         {"op": "render_settings", "engine": "BLENDER_EEVEE_NEXT", "resolution": [1280, 720], "samples": 32},
         {"op": "save_blend", "path": "presentation.blend"},
         {"op": "render", "path": "hero.png"},
@@ -20,9 +21,10 @@ def test_compiles_complete_visualization_batch():
     ]
     compiled = compile_blender_transaction(ops)
     assert compiled.normalized["host"] == "blender"
-    assert len(compiled.normalized["operations"]) == 10
+    assert len(compiled.normalized["operations"]) == 11
     assert "bpy.ops.render.render(write_still=True)" in compiled.script
     assert "__presented_scene__" in compiled.script
+    assert "ShaderNodeTexEnvironment" in compiled.script
     assert len(compiled.fingerprint) == 64
 
 
@@ -61,6 +63,8 @@ def test_eevee_engine_is_selected_across_blender_versions():
     {"op": "transform", "objects": [] , "location": [0, 0, 0]},
     {"op": "assign_material", "objects": ["A"], "material": "M", "base_color": [2, 0, 0, 1]},
     {"op": "create_light", "name": "L", "type": "LASER"},
+    {"op": "set_world_hdri", "path": "image.png"},
+    {"op": "set_world_hdri", "path": "image.hdr", "strength": 11},
     {"op": "render", "path": "out.txt"},
     {"op": "import_scene", "path": "house.glb", "source_host": "freecad"},
     {"op": "import_scene", "path": "house.glb", "unit_scale": 0},

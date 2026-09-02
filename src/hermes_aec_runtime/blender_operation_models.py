@@ -79,6 +79,13 @@ class CreateLight(_BlenderOperation):
     energy: float = Field(default=1000.0, gt=0)
 
 
+class SetWorldHdri(_BlenderOperation):
+    op: Literal["set_world_hdri"]
+    path: str
+    strength: float = Field(default=1.0, gt=0, le=10)
+    rotation_degrees: float = 0.0
+
+
 class RenderSettings(_BlenderOperation):
     op: Literal["render_settings"]
     engine: Literal["BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH", "CYCLES"] = "BLENDER_EEVEE_NEXT"
@@ -103,7 +110,7 @@ class PresentScene(_BlenderOperation):
 BlenderOperationInput: TypeAlias = Annotated[
     Union[
         ImportScene, EnsureCollection, Transform, DeleteObjects, AssignMaterial,
-        CreateCamera, CreateLight, RenderSettings, SaveBlend, Render, PresentScene,
+        CreateCamera, CreateLight, SetWorldHdri, RenderSettings, SaveBlend, Render, PresentScene,
     ],
     Field(discriminator="op"),
 ]

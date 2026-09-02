@@ -23,7 +23,7 @@ class CompiledBlenderTransaction:
 
 _KINDS = {
     "import_scene", "ensure_collection", "transform", "delete_objects", "assign_material",
-    "create_camera", "create_light", "render_settings", "save_blend", "render", "present_scene",
+    "create_camera", "create_light", "set_world_hdri", "render_settings", "save_blend", "render", "present_scene",
 }
 _MAX_OPERATIONS = 256
 _MAX_TEXT = 4_096
@@ -35,6 +35,7 @@ _FIELDS = {
     "assign_material": {"op", "id", "objects", "material", "base_color", "metallic", "roughness"},
     "create_camera": {"op", "id", "name", "location", "target", "rotation_degrees", "lens_mm"},
     "create_light": {"op", "id", "name", "type", "location", "rotation_degrees", "energy"},
+    "set_world_hdri": {"op", "id", "path", "strength", "rotation_degrees"},
     "render_settings": {"op", "id", "engine", "resolution", "samples"},
     "save_blend": {"op", "id", "path"}, "render": {"op", "id", "path"},
     "present_scene": {"op", "id"},
@@ -132,6 +133,14 @@ def normalize_blender_operations(operations: Sequence[Mapping[str, Any]]) -> lis
             op["location"] = _vec(raw.get("location", [0, 0, 0]), f"{path}.location")
             op["rotation_degrees"] = _vec(raw.get("rotation_degrees", [0, 0, 0]), f"{path}.rotation_degrees")
             op["energy"] = _number(raw.get("energy", 1000), f"{path}.energy", positive=True)
+        elif kind == "set_world_hdri":
+            op["path"] = _text(raw.get("path"), f"{path}.path")
+            if Path(op["path"]).suffix.lower() not in {".hdr", ".exr"}:
+                raise BlenderOperationError(f"{path}.path: must be an .hdr or .exr image")
+            op["strength"] = _number(raw.get("strength", 1.0), f"{path}.strength", positive=True)
+            if op["strength"] > 10:
+                raise BlenderOperationError(f"{path}.strength: must be no greater than 10")
+            op["rotation_degrees"] = _number(raw.get("rotation_degrees", 0.0), f"{path}.rotation_degrees")
         elif kind == "render_settings":
             op["engine"] = str(raw.get("engine", "BLENDER_EEVEE_NEXT"))
             if op["engine"] not in {"BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH", "CYCLES"}: raise BlenderOperationError(f"{path}.engine: unsupported")
@@ -213,6 +222,22 @@ for op in ops:
         if kind=="create_camera": data.lens=op["lens_mm"]; bpy.context.scene.camera=obj
         else: data.energy=op["energy"]
         changed.append(obj.name)
+    elif kind=="set_world_hdri":
+        if not os.path.isfile(op["path"]): raise ValueError("HDRI file not found: "+op["path"])
+        world=bpy.context.scene.world or bpy.data.worlds.new("AEC HDRI World")
+        bpy.context.scene.world=world; world.use_nodes=True
+        nodes=world.node_tree.nodes; links=world.node_tree.links; nodes.clear()
+        tex=nodes.new("ShaderNodeTexCoord"); mapping=nodes.new("ShaderNodeMapping")
+        environment=nodes.new("ShaderNodeTexEnvironment"); background=nodes.new("ShaderNodeBackground")
+        output=nodes.new("ShaderNodeOutputWorld")
+        environment.image=bpy.data.images.load(op["path"],check_existing=True)
+        mapping.inputs["Rotation"].default_value[2]=math.radians(op["rotation_degrees"])
+        background.inputs["Strength"].default_value=op["strength"]
+        links.new(tex.outputs["Generated"],mapping.inputs["Vector"])
+        links.new(mapping.outputs["Vector"],environment.inputs["Vector"])
+        links.new(environment.outputs["Color"],background.inputs["Color"])
+        links.new(background.outputs["Background"],output.inputs["Surface"])
+        changed.append("__world_hdri__")
     elif kind=="render_settings":
         s=bpy.context.scene; requested=op["engine"]
         try: s.render.engine=requested

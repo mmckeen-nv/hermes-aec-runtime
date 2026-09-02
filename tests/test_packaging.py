@@ -40,7 +40,7 @@ def test_release_metadata_versions_match():
     package = (ROOT / "src" / "hermes_aec_runtime" / "__init__.py").read_text(encoding="utf-8")
     project_version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE).group(1)
     package_version = re.search(r'^__version__ = "([^"]+)"$', package, re.MULTILINE).group(1)
-    assert project_version == package_version == "0.8.21"
+    assert project_version == package_version == "0.8.22"
 
 
 def test_registration_exposes_typed_surface_without_direct_host_escape():
@@ -86,6 +86,9 @@ def test_packaging_has_versioned_config_and_lifecycle_commands():
     assert 'Get-ItemPropertyValue -Path $CandidatePath -Name "FileName"' in doctor
     assert "RHINOMCP_COMMANDS_REGISTERED" in plugin_installer
     assert "starts automatically" in plugin_installer
+    registration = (ROOT / "Register-Hermes.ps1").read_text(encoding="utf-8")
+    assert "HERMES_AEC_HDRI_ROOT" in registration
+    assert "managed HDRI library is missing" in registration
 
 
 def test_windows_scripts_are_compatible_with_windows_powershell_51():

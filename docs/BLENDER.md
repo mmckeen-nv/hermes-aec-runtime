@@ -3,7 +3,10 @@
 The Blender adapter is a visualization and handoff layer, not an architectural source of truth. It accepts typed transactions for import, collection organization, transforms, materials, cameras, lights, rendering, and saving.
 
 For the standard demo hero render, use `blender_render_archviz`: one stable call owns camera targeting,
-sun and fill lighting, render settings, PNG creation, `.blend` persistence, and visible presentation.
+managed HDRI plus sun/fill lighting, render settings, PNG creation, `.blend` persistence, and visible presentation.
+Its `lighting_preset` is one of `daylight` (default architectural review), `golden_hour`
+(warm sunset/evening requests), or `studio` (neutral material inspection). The runtime resolves only
+the installer-managed, checksum-pinned library; callers never invent HDRI paths.
 Use `blender_apply_operations` only for custom Blender work; its MCP input is a discriminated union
 that publishes every supported operation and field. Cameras accept either `target` or
 `rotation_degrees`, never both.

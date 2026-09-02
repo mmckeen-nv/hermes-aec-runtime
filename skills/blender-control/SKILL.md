@@ -12,4 +12,8 @@ description: Inspect, modify, and verify Blender scenes through deterministic ty
 5. Query the scene again and inspect the intended outputs.
 6. Call `blender_proof_and_recovery` with the receipt. If the status is unknown, reconcile before any retry and reuse the same key.
 
+For a standard render, call `blender_render_archviz` and choose exactly one managed `lighting_preset`:
+`daylight` by default, `golden_hour` for sunset/evening/warm requests, or `studio` for neutral
+material inspection. Never invent an HDRI path or use a loose downloaded environment file.
+
 Never use computer control or expose generated Python when these typed tools cover the request.

@@ -15,7 +15,10 @@ if (-not (Test-Path -LiteralPath $Server)) { throw "Run Install.ps1 first." }
 $ServerYaml = $Server.Replace("\", "/")
 $BlenderCommand = Join-Path $env:LOCALAPPDATA "hermes\integrations\blender-mcp\blender-mcp.cmd"
 $BlenderCommandYaml = $BlenderCommand.Replace("\", "/")
+$HdriRoot = Join-Path $env:LOCALAPPDATA "hermes\integrations\blender-hdri\polyhaven-2k"
+$HdriRootYaml = $HdriRoot.Replace("\", "/")
 if ($EnableBlender -and -not (Test-Path -LiteralPath $BlenderCommand)) { throw "Blender was enabled but its managed MCP launcher is missing: $BlenderCommand" }
+if ($EnableBlender -and -not (Test-Path -LiteralPath (Join-Path $HdriRoot "manifest.json"))) { throw "Blender was enabled but its managed HDRI library is missing: $HdriRoot" }
 $Begin = "  # BEGIN HERMES AEC SIDECAR (managed)"
 $End = "  # END HERMES AEC SIDECAR (managed)"
 
@@ -102,6 +105,7 @@ $Begin
       HERMES_AEC_ENABLE_BLENDER: "$($EnableBlender.ToString().ToLower())"
       HERMES_AEC_BLENDER_COMMAND: "$BlenderCommandYaml"
       HERMES_AEC_BLENDER_ARGS: ""
+      HERMES_AEC_HDRI_ROOT: "$HdriRootYaml"
       HERMES_AEC_ENABLE_COMFYUI: "$($EnableComfyUI.ToString().ToLower())"
       HERMES_AEC_COMFYUI_URL: "http://127.0.0.1:8188"
     connect_timeout: 30

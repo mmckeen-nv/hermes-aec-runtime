@@ -23,6 +23,7 @@ from collections import Counter
 import base64
 import os
 from pathlib import Path
+from typing import Literal
 
 mcp = FastMCP("Hermes AEC Runtime")
 _blender = BlenderGateway(default_transport)
@@ -35,6 +36,31 @@ _workflow = WorkflowOrchestrator(
     {"rhino": RhinoWorkflowGateway(_rhino_direct), "blender": BlenderWorkflowGateway(_blender), "freecad": FreeCADWorkflowGateway(_freecad)},
     recorder=_recorder, memory=_memory,
 )
+
+_HDRI_PRESETS = {
+    "daylight": {
+        "filename": "quadrangle_cloudy_2k.hdr", "strength": 0.85, "rotation_degrees": 110.0,
+        "sun_rotation": (35.0, -20.0, -40.0), "sun_energy": 2.0, "fill_energy": 900.0,
+    },
+    "golden_hour": {
+        "filename": "safari_sunset_2k.hdr", "strength": 0.9, "rotation_degrees": 225.0,
+        "sun_rotation": (65.0, -10.0, -120.0), "sun_energy": 3.5, "fill_energy": 700.0,
+    },
+    "studio": {
+        "filename": "studio_small_02_2k.hdr", "strength": 0.65, "rotation_degrees": 25.0,
+        "sun_rotation": (28.0, -18.0, -35.0), "sun_energy": 1.0, "fill_energy": 1600.0,
+    },
+}
+
+
+def _managed_hdri_path(preset: str) -> tuple[Path, dict]:
+    settings = _HDRI_PRESETS[preset]
+    configured = os.environ.get("HERMES_AEC_HDRI_ROOT")
+    root = Path(configured) if configured else Path(os.environ.get("LOCALAPPDATA", Path.home())) / "hermes" / "integrations" / "blender-hdri" / "polyhaven-2k"
+    path = root / settings["filename"]
+    if not path.is_file():
+        raise ValueError(f"Managed Blender HDRI preset '{preset}' is missing at {path}; rerun AEC deployment with Blender enabled")
+    return path, settings
 
 
 @mcp.tool()
@@ -143,8 +169,9 @@ async def blender_render_archviz(
     lens_mm: float = 48.0,
     resolution: tuple[int, int] = (768, 512),
     samples: int = 32,
+    lighting_preset: Literal["daylight", "golden_hour", "studio"] = "daylight",
 ) -> dict:
-    """Aim a camera, light the imported model, render one PNG, save the .blend, and present Blender."""
+    """Render with a managed HDRI preset: daylight for clear architectural review, golden_hour for warm evening requests, or studio for neutral material inspection."""
     output = Path(output_path)
     blend = Path(blend_path)
     if not output.is_absolute() or output.suffix.lower() != ".png":
@@ -155,12 +182,14 @@ async def blender_render_archviz(
         raise ValueError("output_path already exists")
     output.parent.mkdir(parents=True, exist_ok=True)
     blend.parent.mkdir(parents=True, exist_ok=True)
+    hdri_path, lighting = _managed_hdri_path(lighting_preset)
     return await _blender.execute(
-        intent="Create and render a verified architectural hero view",
+        intent=f"Create and render a verified architectural hero view with the managed {lighting_preset} HDRI preset",
         operations=[
+            {"op": "set_world_hdri", "id": "world_hdri", "path": str(hdri_path), "strength": lighting["strength"], "rotation_degrees": lighting["rotation_degrees"]},
             {"op": "create_camera", "id": "hero_camera", "name": "AEC Hero Camera", "location": camera_location, "target": camera_target, "lens_mm": lens_mm},
-            {"op": "create_light", "id": "sun", "name": "AEC Sun", "type": "SUN", "location": (0, 0, 30), "rotation_degrees": (28, -18, -35), "energy": 3.0},
-            {"op": "create_light", "id": "fill", "name": "AEC Fill", "type": "AREA", "location": (8, -12, 20), "rotation_degrees": (20, 0, 25), "energy": 1800.0},
+            {"op": "create_light", "id": "sun", "name": "AEC Sun", "type": "SUN", "location": (0, 0, 30), "rotation_degrees": lighting["sun_rotation"], "energy": lighting["sun_energy"]},
+            {"op": "create_light", "id": "fill", "name": "AEC Fill", "type": "AREA", "location": (8, -12, 20), "rotation_degrees": (20, 0, 25), "energy": lighting["fill_energy"]},
             {"op": "render_settings", "id": "settings", "engine": "BLENDER_EEVEE_NEXT", "resolution": resolution, "samples": samples},
             {"op": "render", "id": "render", "path": str(output)},
             {"op": "save_blend", "id": "save", "path": str(blend)},
